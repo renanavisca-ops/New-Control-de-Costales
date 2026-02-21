@@ -1,0 +1,7 @@
+{
+  "name": "Control de Costales",
+  "description": "Sistema profesional de control de inventario de costales con modo offline, escaneo de códigos de barras y sincronización automática con Google Sheets.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
