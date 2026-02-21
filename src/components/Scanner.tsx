@@ -140,4 +140,3 @@ const Scanner: React.FC<ScannerProps> = ({ onScan, placeholder = "Escanea códig
 };
 
 export default Scanner;
-export default Scanner;
