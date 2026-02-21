@@ -14,54 +14,64 @@ const Scanner: React.FC<ScannerProps> = ({ onScan, placeholder = "Escanea códig
   const inputRef = useRef<HTMLInputElement>(null);
   const qrRef = useRef<Html5Qrcode | null>(null);
 
+  // ID del contenedor donde html5-qrcode dibuja la cámara
   const SCAN_REGION_ID = "scan-region";
 
   const handleManualSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (manualCode.trim()) {
-      onScan(manualCode.trim());
-      setManualCode("");
-      inputRef.current?.focus();
-    }
+    const code = manualCode.trim();
+    if (!code) return;
+    onScan(code);
+    setManualCode("");
+    inputRef.current?.focus();
   };
 
   const startCamera = async () => {
     setError(null);
 
     try {
+      // 1) Activar UI primero para que el DIV exista en el DOM (CRÍTICO en iPhone)
+      setIsCameraActive(true);
+      await new Promise((r) => setTimeout(r, 50));
+
+      // 2) Crear instancia si no existe
       if (!qrRef.current) {
         qrRef.current = new Html5Qrcode(SCAN_REGION_ID);
       }
 
-      // Arranca cámara tras gesto del usuario (click)
+      // 3) Iniciar cámara
       await qrRef.current.start(
         { facingMode: "environment" },
         {
           fps: 10,
-          qrbox: { width: 250, height: 250 },
-          // Nota: incluye QR y varios 1D comunes; puedes ajustar luego
-          formatsToSupport: undefined,
+          qrbox: { width: 250, height: 250 }
         },
         (decodedText) => {
+          // Callback al detectar
           onScan(decodedText);
           if (navigator.vibrate) navigator.vibrate(100);
-          // pausa breve para evitar múltiple lectura del mismo código
-          stopCamera().then(() => startCamera()).catch(() => {});
         },
         () => {
-          // ignore scan errors frame-by-frame
+          // Ignorar errores por frame
         }
       );
-
-      setIsCameraActive(true);
     } catch (err) {
       console.error(err);
-      setError("No se pudo iniciar la cámara. Revisa permisos del navegador.");
+      setError("No se pudo iniciar la cámara. Verifica permisos en Safari/Chrome.");
       setIsCameraActive(false);
+
+      // Limpieza si falló
+      try {
+        if (qrRef.current) {
+          await qrRef.current.stop();
+          await qrRef.current.clear();
+        }
+      } catch (_) {}
     }
   };
 
   const stopCamera = async () => {
+    setError(null);
     try {
       if (qrRef.current && qrRef.current.isScanning) {
         await qrRef.current.stop();
@@ -70,13 +80,13 @@ const Scanner: React.FC<ScannerProps> = ({ onScan, placeholder = "Escanea códig
         await qrRef.current.clear();
       }
     } catch (err) {
-      // ignore
+      console.error(err);
     } finally {
       setIsCameraActive(false);
     }
   };
 
-  // Limpieza al salir
+  // Limpieza al desmontar
   useEffect(() => {
     return () => {
       stopCamera().catch(() => {});
@@ -115,16 +125,19 @@ const Scanner: React.FC<ScannerProps> = ({ onScan, placeholder = "Escanea códig
         </button>
       </div>
 
-      {isCameraActive && (
-        <div className="relative w-full bg-black rounded-xl overflow-hidden shadow-inner">
-          {/* html5-qrcode renderiza aquí su vista de cámara */}
-          <div id={SCAN_REGION_ID} className="w-full" />
-        </div>
-      )}
+      {/* IMPORTANTE: el DIV SIEMPRE existe; solo se oculta. iPhone lo necesita en el DOM */}
+      <div
+        className={`relative w-full bg-black rounded-xl overflow-hidden shadow-inner ${
+          isCameraActive ? "" : "hidden"
+        }`}
+      >
+        <div id={SCAN_REGION_ID} className="w-full" />
+      </div>
 
       {error && <p className="text-xs text-red-500 italic">{error}</p>}
     </div>
   );
 };
 
+export default Scanner;
 export default Scanner;
