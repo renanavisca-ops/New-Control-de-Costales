@@ -24,7 +24,7 @@ const generateUUID = () => {
 };
 
 const canAccessAdmin = (user: User | null) => user?.rol === Role.ADMIN || user?.rol === Role.ADMIN_2;
-const canAccessReports = (user: User | null) => user?.rol === Role.ADMIN;
+const canAccessReports = (user: User | null) => user?.rol === Role.ADMIN || user?.rol === Role.ADMIN_2;
 const isRootAdmin = (user: User | null) => (user?.email || '').toLowerCase() === ROOT_ADMIN_EMAIL;
 const canManageUser = (currentUser: User | null, target: User) => {
   if (!currentUser) return false;
@@ -563,7 +563,7 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
     const allowedRoles = getAssignableRoles(user, editingUser);
     if (!allowedRoles.includes(editingUser.rol)) return showNotify('error', 'No puedes asignar ese rol.');
 
-    const res: any = await gasService.updateUsuario(editingUser);
+    const res: any = await gasService.updateUsuario({ ...editingUser, actorEmail: user?.email || '' });
     if (res.ok) {
       showNotify('success', 'Usuario actualizado');
       setUsers(prev => prev.map(u => u.email === editingUser.email ? editingUser : u));
