@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { User, Role, Costal, Apertura, CostalStatus, OfflineAction, Store } from './types';
 import { CATEGORIES, PIECES_MAP, INITIAL_STORES } from './constants';
 import { gasService } from './services/gasService';
 import Scanner from './components/Scanner';
+import * as XLSX from 'xlsx';
 
 type Screen = 'LOGIN' | 'REGISTRO' | 'RECEPCION' | 'EXISTENCIAS' | 'APERTURA' | 'METRICAS' | 'REPORTES';
 
@@ -458,15 +459,138 @@ const App: React.FC = () => {
 
 const ExistenciasView = ({ user, onOpen }: any) => {
   const [items, setItems] = useState<Costal[]>([]);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importSummary, setImportSummary] = useState<string>('');
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
   const loadData = useCallback(async () => {
     const res: any = await gasService.getInventory(user?.tienda || '');
     if (res.ok) setItems(res.data);
   }, [user?.tienda]);
+
   useEffect(() => { loadData(); }, [loadData]);
+
+  const normalizeHeader = (value: any) => String(value || '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
+  const normalizeCategory = (value: any) => {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    const found = CATEGORIES.find((c) => c.toLowerCase() === raw.toLowerCase());
+    return found || raw.toUpperCase();
+  };
+
+  const processImportFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setIsImporting(true);
+    setImportSummary('');
+
+    try {
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array' });
+      const firstSheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[firstSheetName];
+      const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+
+      if (!rows.length) {
+        setImportSummary('Archivo vacío.');
+        return;
+      }
+
+      const headerRow = rows[0].map(normalizeHeader);
+      const findIndex = (...keys: string[]) => headerRow.findIndex((h: string) => keys.includes(h));
+
+      const codigoIndex = findIndex('codigobarras', 'codigo', 'barcode', 'costal', 'numerocostal');
+      const categoriaIndex = findIndex('categoria', 'category', 'tipo');
+      const piezasIndex = findIndex('piezasasignadas', 'piezas', 'cantidadpiezas', 'qty', 'cantidad');
+      const tiendaIndex = findIndex('tienda', 'sucursal', 'store');
+      const notasIndex = findIndex('notas', 'nota', 'observaciones', 'comentarios');
+
+      if (codigoIndex === -1 || categoriaIndex === -1) {
+        setImportSummary('El Excel debe traer al menos las columnas: codigo_barras y categoria.');
+        return;
+      }
+
+      let imported = 0;
+      let duplicates = 0;
+      let invalid = 0;
+      let failed = 0;
+
+      for (let i = 1; i < rows.length; i += 1) {
+        const row = rows[i];
+        const codigo = String(row[codigoIndex] || '').trim();
+        const categoria = normalizeCategory(row[categoriaIndex]);
+        if (!codigo || !categoria) {
+          invalid += 1;
+          continue;
+        }
+
+        const piezasBase = piezasIndex >= 0 ? Number(row[piezasIndex] || 0) : (PIECES_MAP[categoria] || 0);
+        const piezas = Number.isFinite(piezasBase) ? piezasBase : (PIECES_MAP[categoria] || 0);
+        const tienda = tiendaIndex >= 0 && String(row[tiendaIndex] || '').trim() ? String(row[tiendaIndex]).trim() : (user?.tienda || '');
+        const notas = notasIndex >= 0 ? String(row[notasIndex] || '').trim() : 'Carga masiva desde Excel';
+
+        const duplicateCheck: any = await gasService.checkDuplicate(codigo);
+        if (duplicateCheck.exists) {
+          duplicates += 1;
+          continue;
+        }
+
+        const costal: Costal = {
+          codigo_barras: codigo,
+          categoria,
+          tienda,
+          fecha_recepcion: new Date().toISOString(),
+          usuario_recibe: user?.email || '',
+          piezas_asignadas: piezas,
+          estado: CostalStatus.RECIBIDO,
+          notas,
+        };
+
+        const res: any = await gasService.addCostal(costal);
+        if (res.ok) imported += 1;
+        else failed += 1;
+      }
+
+      await loadData();
+      setImportSummary(`Importados: ${imported} • Duplicados: ${duplicates} • Inválidos: ${invalid} • Fallidos: ${failed}`);
+    } catch (error) {
+      console.error(error);
+      setImportSummary('No se pudo procesar el archivo.');
+    } finally {
+      setIsImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   return (
     <div className="space-y-4">
-      <h2 className="text-2xl font-black tracking-tighter">Stock en Tienda <span className="text-indigo-600">({items.length})</span></h2>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="text-2xl font-black tracking-tighter">Stock en Tienda <span className="text-indigo-600">({items.length})</span></h2>
+        <div className="flex gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            className="hidden"
+            onChange={processImportFile}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isImporting}
+            className="bg-emerald-600 text-white px-4 py-3 rounded-2xl font-black text-xs uppercase tracking-widest disabled:opacity-50"
+          >
+            {isImporting ? 'Cargando...' : 'Cargar Excel'}
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-white p-4 rounded-3xl shadow-sm border border-emerald-100 text-xs text-gray-500">
+        <p className="font-black text-emerald-700 uppercase tracking-widest mb-1">Carga desde bodega</p>
+        <p>Columnas sugeridas: <span className="font-bold">codigo_barras</span>, <span className="font-bold">categoria</span>, <span className="font-bold">piezas_asignadas</span>, <span className="font-bold">tienda</span>, <span className="font-bold">notas</span>.</p>
+        {importSummary && <p className="mt-2 font-black text-indigo-600">{importSummary}</p>}
+      </div>
+
       {items.length === 0 ? <div className="text-center p-20 text-gray-300 font-black border border-dashed rounded-[40px]">Inventario Vacío</div> : (
         <div className="space-y-4">
           {items.map(item => (
@@ -542,7 +666,6 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [editingStore, setEditingStore] = useState<Store | null>(null);
   const [showStores, setShowStores] = useState(false);
-  const [showAddStoreModal, setShowAddStoreModal] = useState(false);
 
   const limitedAdmin = user?.rol === Role.ADMIN_2;
 
@@ -611,16 +734,11 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
       </div>
 
       <div className="space-y-4">
-        <div className="flex items-center justify-between px-2 gap-3">
+        <div className="flex items-center justify-between px-2">
           <h3 className="text-lg font-black text-gray-900">Gestión de Tiendas</h3>
-          <div className="flex items-center gap-2">
-            <button onClick={() => setShowStores(!showStores)} className="bg-indigo-50 text-indigo-600 px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest">
-              {showStores ? 'Ocultar' : 'Más'}
-            </button>
-            <button onClick={() => setShowAddStoreModal(true)} className="bg-gray-900 text-white px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest">
-              Nueva Tienda
-            </button>
-          </div>
+          <button onClick={() => setShowStores(!showStores)} className="bg-indigo-50 text-indigo-600 px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest">
+            {showStores ? 'Ocultar' : 'Más'}
+          </button>
         </div>
 
         {showStores && (
@@ -641,6 +759,17 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
             ))}
           </div>
         )}
+      </div>
+
+      <div className="bg-gray-900 p-8 rounded-[40px] text-white space-y-4 shadow-2xl">
+        <h2 className="font-black text-[10px] uppercase tracking-widest opacity-40">Nueva Sede</h2>
+        <div className="space-y-3">
+          <input type="text" value={newStoreName} onChange={e => setNewStoreName(e.target.value)} placeholder="Nombre de la Tienda" className="w-full p-4 bg-gray-800 rounded-2xl outline-none font-bold text-sm text-white focus:ring-2 focus:ring-indigo-500" />
+          <input type="text" value={newStoreAddr} onChange={e => setNewStoreAddr(e.target.value)} placeholder="Dirección completa..." className="w-full p-4 bg-gray-800 rounded-2xl outline-none font-bold text-sm text-white focus:ring-2 focus:ring-indigo-500" />
+          <button onClick={() => { onAddStore(newStoreName, newStoreAddr); setNewStoreName(''); setNewStoreAddr(''); }} disabled={loading || !newStoreName} className="w-full bg-indigo-600 py-4 rounded-2xl font-black text-xs uppercase shadow-lg shadow-indigo-900/20 active:scale-95 transition-all disabled:opacity-50">
+            Añadir Tienda
+          </button>
+        </div>
       </div>
 
       {editingUser && (
@@ -672,39 +801,6 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
 
             <button type="submit" className="w-full bg-indigo-600 text-white font-black py-4 rounded-3xl shadow-xl shadow-indigo-100">GUARDAR CAMBIOS</button>
           </form>
-        </div>
-      )}
-
-      {showAddStoreModal && (
-        <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-4">
-          <div className="bg-white w-full max-w-md rounded-[40px] p-8 space-y-6 shadow-2xl">
-            <div className="flex justify-between items-center">
-              <h3 className="text-xl font-black">Nueva Tienda</h3>
-              <button onClick={() => setShowAddStoreModal(false)} className="text-gray-400 font-bold">Cerrar</button>
-            </div>
-            <div className="space-y-4">
-              <label className="block space-y-1">
-                <span className="text-[10px] font-black text-gray-400 uppercase">Nombre</span>
-                <input type="text" value={newStoreName} onChange={e => setNewStoreName(e.target.value)} placeholder="Nombre de la Tienda" className="w-full p-4 bg-gray-50 rounded-2xl font-bold" />
-              </label>
-              <label className="block space-y-1">
-                <span className="text-[10px] font-black text-gray-400 uppercase">Dirección</span>
-                <input type="text" value={newStoreAddr} onChange={e => setNewStoreAddr(e.target.value)} placeholder="Dirección completa..." className="w-full p-4 bg-gray-50 rounded-2xl font-bold" />
-              </label>
-            </div>
-            <button
-              onClick={() => {
-                onAddStore(newStoreName, newStoreAddr);
-                setNewStoreName('');
-                setNewStoreAddr('');
-                setShowAddStoreModal(false);
-              }}
-              disabled={loading || !newStoreName.trim()}
-              className="w-full bg-indigo-600 text-white font-black py-4 rounded-3xl disabled:opacity-50"
-            >
-              CREAR TIENDA
-            </button>
-          </div>
         </div>
       )}
 
