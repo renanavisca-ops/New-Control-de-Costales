@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { User, Role, Costal, Apertura, CostalStatus, OfflineAction, Store } from './types';
 import { CATEGORIES, PIECES_MAP, INITIAL_STORES } from './constants';
@@ -637,47 +636,322 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
 };
 
 const ReportesView = ({ stores, metrics, showNotify }: any) => {
-  const [dateFrom, setDateFrom] = useState(new Date().toISOString().split('T')[0]);
-  const [dateTo, setDateTo] = useState(new Date().toISOString().split('T')[0]);
-  const [reportType, setReportType] = useState('RECIBIDOS');
+  const today = new Date().toISOString().split('T')[0];
+  const [dateFrom, setDateFrom] = useState(today);
+  const [dateTo, setDateTo] = useState(today);
+  const [reportType, setReportType] = useState<'STOCK' | 'RECIBIDOS' | 'ABIERTOS'>('RECIBIDOS');
+  const [exportFormat, setExportFormat] = useState<'EXCEL' | 'PDF'>('EXCEL');
   const [results, setResults] = useState<any[]>([]);
-  const generateReport = async () => {
-    const res: any = await gasService.getDetailedReport({ type: reportType, dateFrom, dateTo, tienda: 'ALL', usuario: 'ALL' });
-    if (res.ok) setResults(res.data);
+  const [groupedRows, setGroupedRows] = useState<{ categoria: string; costales: number; piezas: number }[]>([]);
+  const [loadingReport, setLoadingReport] = useState(false);
+
+  const buildGroupedRows = (items: any[], type: 'STOCK' | 'RECIBIDOS' | 'ABIERTOS') => {
+    const map = new Map<string, { categoria: string; costales: number; piezas: number }>();
+
+    items.forEach((item) => {
+      const categoria = item.categoria || 'SIN CATEGORÍA';
+      const piezas =
+        type === 'ABIERTOS'
+          ? Number(item.piezas_contadas ?? item.piezas_asignadas ?? 0)
+          : Number(item.saldo_piezas ?? item.piezas_asignadas ?? 0);
+
+      if (!map.has(categoria)) {
+        map.set(categoria, { categoria, costales: 0, piezas: 0 });
+      }
+
+      const current = map.get(categoria)!;
+      current.costales += 1;
+      current.piezas += piezas;
+    });
+
+    return Array.from(map.values()).sort((a, b) => a.categoria.localeCompare(b.categoria));
   };
+
+  const getTotals = (rows: { categoria: string; costales: number; piezas: number }[]) => {
+    return rows.reduce(
+      (acc, row) => {
+        acc.costales += row.costales;
+        acc.piezas += row.piezas;
+        return acc;
+      },
+      { costales: 0, piezas: 0 }
+    );
+  };
+
+  const generateReport = async () => {
+    setLoadingReport(true);
+    try {
+      const res: any = await gasService.getDetailedReport({
+        type: reportType,
+        dateFrom,
+        dateTo,
+        tienda: 'ALL',
+        usuario: 'ALL'
+      });
+
+      if (res.ok) {
+        const data = Array.isArray(res.data) ? res.data : [];
+        const grouped = buildGroupedRows(data, reportType);
+        setResults(data);
+        setGroupedRows(grouped);
+
+        if (grouped.length === 0) {
+          showNotify('warning', 'No hay datos para ese reporte.');
+        } else {
+          showNotify('success', 'Reporte generado.');
+        }
+      } else {
+        showNotify('error', res.error || 'No se pudo generar el reporte.');
+      }
+    } catch (error) {
+      console.error(error);
+      showNotify('error', 'No se pudo generar el reporte.');
+    } finally {
+      setLoadingReport(false);
+    }
+  };
+
+  const downloadFile = (content: string, fileName: string, mimeType: string) => {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = fileName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+  };
+
+  const exportToExcel = () => {
+    if (groupedRows.length === 0) {
+      showNotify('warning', 'Primero genera el reporte.');
+      return;
+    }
+
+    const totals = getTotals(groupedRows);
+    const lines = [
+      ['Tipo de reporte', reportType],
+      ['Fecha desde', dateFrom],
+      ['Fecha hasta', dateTo],
+      [''],
+      ['Categoría', 'Cantidad de Costales', 'Cantidad de Piezas'],
+      ...groupedRows.map((row) => [row.categoria, row.costales.toString(), row.piezas.toString()]),
+      ['TOTAL', totals.costales.toString(), totals.piezas.toString()]
+    ];
+
+    const csv = lines
+      .map((line) =>
+        line
+          .map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`)
+          .join(',')
+      )
+      .join('\n');
+
+    downloadFile(csv, `reporte_${reportType.toLowerCase()}_${dateFrom}_a_${dateTo}.csv`, 'text/csv;charset=utf-8;');
+    showNotify('success', 'Archivo Excel descargado.');
+  };
+
+  const exportToPdf = () => {
+    if (groupedRows.length === 0) {
+      showNotify('warning', 'Primero genera el reporte.');
+      return;
+    }
+
+    const totals = getTotals(groupedRows);
+    const htmlRows = groupedRows
+      .map(
+        (row) => `
+          <tr>
+            <td style="padding:10px;border:1px solid #d1d5db;">${row.categoria}</td>
+            <td style="padding:10px;border:1px solid #d1d5db;text-align:right;">${row.costales}</td>
+            <td style="padding:10px;border:1px solid #d1d5db;text-align:right;">${row.piezas}</td>
+          </tr>
+        `
+      )
+      .join('');
+
+    const printWindow = window.open('', '_blank', 'width=900,height=700');
+    if (!printWindow) {
+      showNotify('error', 'El navegador bloqueó la ventana de impresión.');
+      return;
+    }
+
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Reporte ${reportType}</title>
+        </head>
+        <body style="font-family:Arial,sans-serif;padding:24px;color:#111827;">
+          <h1 style="margin:0 0 8px 0;">Reporte ${reportType}</h1>
+          <p style="margin:0 0 20px 0;">Desde ${dateFrom} hasta ${dateTo}</p>
+          <table style="width:100%;border-collapse:collapse;">
+            <thead>
+              <tr style="background:#111827;color:white;">
+                <th style="padding:10px;border:1px solid #d1d5db;text-align:left;">Categoría</th>
+                <th style="padding:10px;border:1px solid #d1d5db;text-align:right;">Costales</th>
+                <th style="padding:10px;border:1px solid #d1d5db;text-align:right;">Piezas</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${htmlRows}
+              <tr style="font-weight:700;background:#f3f4f6;">
+                <td style="padding:10px;border:1px solid #d1d5db;">TOTAL</td>
+                <td style="padding:10px;border:1px solid #d1d5db;text-align:right;">${totals.costales}</td>
+                <td style="padding:10px;border:1px solid #d1d5db;text-align:right;">${totals.piezas}</td>
+              </tr>
+            </tbody>
+          </table>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => {
+      printWindow.print();
+    }, 300);
+  };
+
+  const handleExport = () => {
+    if (exportFormat === 'EXCEL') {
+      exportToExcel();
+      return;
+    }
+    exportToPdf();
+  };
+
+  const totals = getTotals(groupedRows);
+
   return (
     <div className="space-y-6 pb-20">
       <div className="bg-white p-8 rounded-[40px] shadow-sm space-y-6">
         <h2 className="text-2xl font-black text-center">Auditoría General</h2>
+
         <div className="grid grid-cols-2 gap-4">
-          <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="p-3 bg-gray-50 rounded-2xl outline-none text-sm" />
-          <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="p-3 bg-gray-50 rounded-2xl outline-none text-sm" />
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={e => setDateFrom(e.target.value)}
+            className="p-3 bg-gray-50 rounded-2xl outline-none text-sm"
+          />
+          <input
+            type="date"
+            value={dateTo}
+            onChange={e => setDateTo(e.target.value)}
+            className="p-3 bg-gray-50 rounded-2xl outline-none text-sm"
+          />
         </div>
+
         <div className="flex gap-2 p-1 bg-gray-50 rounded-3xl">
           {['STOCK', 'RECIBIDOS', 'ABIERTOS'].map(t => (
-            <button key={t} onClick={() => setReportType(t)} className={`flex-1 py-3 rounded-2xl text-[8px] font-black transition-all ${reportType === t ? 'bg-indigo-600 text-white' : 'text-gray-400'}`}>{t}</button>
+            <button
+              key={t}
+              onClick={() => setReportType(t as 'STOCK' | 'RECIBIDOS' | 'ABIERTOS')}
+              className={`flex-1 py-3 rounded-2xl text-[8px] font-black transition-all ${reportType === t ? 'bg-indigo-600 text-white' : 'text-gray-400'}`}
+            >
+              {t}
+            </button>
           ))}
         </div>
-        <button onClick={generateReport} className="w-full bg-gray-900 text-white font-black py-4 rounded-[28px] text-xs uppercase tracking-widest shadow-xl">Generar Consulta</button>
+
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            onClick={() => setExportFormat('EXCEL')}
+            className={`py-3 rounded-2xl text-[10px] font-black transition-all ${exportFormat === 'EXCEL' ? 'bg-emerald-600 text-white' : 'bg-gray-50 text-gray-500'}`}
+          >
+            EXCEL
+          </button>
+          <button
+            onClick={() => setExportFormat('PDF')}
+            className={`py-3 rounded-2xl text-[10px] font-black transition-all ${exportFormat === 'PDF' ? 'bg-red-600 text-white' : 'bg-gray-50 text-gray-500'}`}
+          >
+            PDF
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            onClick={generateReport}
+            disabled={loadingReport}
+            className="w-full bg-gray-900 text-white font-black py-4 rounded-[28px] text-xs uppercase tracking-widest shadow-xl disabled:opacity-50"
+          >
+            {loadingReport ? 'GENERANDO...' : 'GENERAR CONSULTA'}
+          </button>
+          <button
+            onClick={handleExport}
+            className="w-full bg-indigo-600 text-white font-black py-4 rounded-[28px] text-xs uppercase tracking-widest shadow-xl"
+          >
+            EXPORTAR
+          </button>
+        </div>
       </div>
-      <div className="space-y-3">
-        {results.map((item, i) => (
-          <div key={i} className="bg-white p-5 rounded-[32px] shadow-sm flex justify-between items-center">
-            <div>
-              <p className="font-black text-gray-900 text-sm tracking-tight">{item.codigo_barras || 'ID:'+item.id_apertura.substring(0,8)}</p>
-              <p className="text-[9px] font-black text-gray-400 uppercase">{item.categoria}</p>
-              <p className="text-[8px] font-bold text-indigo-400 mt-0.5">{new Date(item.fecha_recepcion || item.fecha_apertura).toLocaleDateString()}</p>
-            </div>
-            {item.diferencia !== undefined && (
-              <div className={`text-xs font-black p-3 rounded-2xl ${item.diferencia >= 0 ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
-                {item.diferencia > 0 ? '+' : ''}{item.diferencia}
-              </div>
-            )}
+
+      {groupedRows.length > 0 && (
+        <div className="bg-white p-6 rounded-[32px] shadow-sm space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-black text-gray-900">Resumen por Categoría</h3>
+            <span className="text-[10px] font-black text-indigo-500 uppercase tracking-widest">{reportType}</span>
           </div>
-        ))}
-      </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-indigo-50 rounded-3xl p-5">
+              <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Costales</p>
+              <p className="text-3xl font-black text-indigo-700">{totals.costales}</p>
+            </div>
+            <div className="bg-emerald-50 rounded-3xl p-5">
+              <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Piezas</p>
+              <p className="text-3xl font-black text-emerald-700">{totals.piezas}</p>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {groupedRows.map((row) => (
+              <div key={row.categoria} className="bg-gray-50 p-5 rounded-[28px] flex items-center justify-between">
+                <div>
+                  <p className="font-black text-gray-900 text-sm">{row.categoria}</p>
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">
+                    {row.costales} costales
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-2xl font-black text-indigo-600">{row.piezas}</p>
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Piezas</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {results.length > 0 && (
+        <div className="space-y-3">
+          <h3 className="text-lg font-black text-gray-900 px-1">Detalle</h3>
+          {results.map((item, i) => (
+            <div key={i} className="bg-white p-5 rounded-[32px] shadow-sm flex justify-between items-center">
+              <div>
+                <p className="font-black text-gray-900 text-sm tracking-tight">
+                  {item.codigo_barras || 'ID:' + item.id_apertura.substring(0, 8)}
+                </p>
+                <p className="text-[9px] font-black text-gray-400 uppercase">{item.categoria}</p>
+                <p className="text-[8px] font-bold text-indigo-400 mt-0.5">
+                  {new Date(item.fecha_recepcion || item.fecha_apertura).toLocaleDateString()}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-sm font-black text-gray-900">
+                  {reportType === 'ABIERTOS'
+                    ? Number(item.piezas_contadas ?? item.piezas_asignadas ?? 0)
+                    : Number(item.saldo_piezas ?? item.piezas_asignadas ?? 0)}
+                </p>
+                <p className="text-[8px] font-black text-gray-400 uppercase">Piezas</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };
+
 
 export default App;
