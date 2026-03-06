@@ -542,6 +542,7 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [editingStore, setEditingStore] = useState<Store | null>(null);
   const [showStores, setShowStores] = useState(false);
+  const [showAddStoreModal, setShowAddStoreModal] = useState(false);
 
   const limitedAdmin = user?.rol === Role.ADMIN_2;
 
@@ -610,11 +611,16 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
       </div>
 
       <div className="space-y-4">
-        <div className="flex items-center justify-between px-2">
+        <div className="flex items-center justify-between px-2 gap-3">
           <h3 className="text-lg font-black text-gray-900">Gestión de Tiendas</h3>
-          <button onClick={() => setShowStores(!showStores)} className="bg-indigo-50 text-indigo-600 px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest">
-            {showStores ? 'Ocultar' : 'Más'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setShowStores(!showStores)} className="bg-indigo-50 text-indigo-600 px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest">
+              {showStores ? 'Ocultar' : 'Más'}
+            </button>
+            <button onClick={() => setShowAddStoreModal(true)} className="bg-gray-900 text-white px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest">
+              Nueva Tienda
+            </button>
+          </div>
         </div>
 
         {showStores && (
@@ -635,17 +641,6 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
             ))}
           </div>
         )}
-      </div>
-
-      <div className="bg-gray-900 p-8 rounded-[40px] text-white space-y-4 shadow-2xl">
-        <h2 className="font-black text-[10px] uppercase tracking-widest opacity-40">Nueva Sede</h2>
-        <div className="space-y-3">
-          <input type="text" value={newStoreName} onChange={e => setNewStoreName(e.target.value)} placeholder="Nombre de la Tienda" className="w-full p-4 bg-gray-800 rounded-2xl outline-none font-bold text-sm text-white focus:ring-2 focus:ring-indigo-500" />
-          <input type="text" value={newStoreAddr} onChange={e => setNewStoreAddr(e.target.value)} placeholder="Dirección completa..." className="w-full p-4 bg-gray-800 rounded-2xl outline-none font-bold text-sm text-white focus:ring-2 focus:ring-indigo-500" />
-          <button onClick={() => { onAddStore(newStoreName, newStoreAddr); setNewStoreName(''); setNewStoreAddr(''); }} disabled={loading || !newStoreName} className="w-full bg-indigo-600 py-4 rounded-2xl font-black text-xs uppercase shadow-lg shadow-indigo-900/20 active:scale-95 transition-all disabled:opacity-50">
-            Añadir Tienda
-          </button>
-        </div>
       </div>
 
       {editingUser && (
@@ -677,6 +672,39 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
 
             <button type="submit" className="w-full bg-indigo-600 text-white font-black py-4 rounded-3xl shadow-xl shadow-indigo-100">GUARDAR CAMBIOS</button>
           </form>
+        </div>
+      )}
+
+      {showAddStoreModal && (
+        <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-4">
+          <div className="bg-white w-full max-w-md rounded-[40px] p-8 space-y-6 shadow-2xl">
+            <div className="flex justify-between items-center">
+              <h3 className="text-xl font-black">Nueva Tienda</h3>
+              <button onClick={() => setShowAddStoreModal(false)} className="text-gray-400 font-bold">Cerrar</button>
+            </div>
+            <div className="space-y-4">
+              <label className="block space-y-1">
+                <span className="text-[10px] font-black text-gray-400 uppercase">Nombre</span>
+                <input type="text" value={newStoreName} onChange={e => setNewStoreName(e.target.value)} placeholder="Nombre de la Tienda" className="w-full p-4 bg-gray-50 rounded-2xl font-bold" />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-[10px] font-black text-gray-400 uppercase">Dirección</span>
+                <input type="text" value={newStoreAddr} onChange={e => setNewStoreAddr(e.target.value)} placeholder="Dirección completa..." className="w-full p-4 bg-gray-50 rounded-2xl font-bold" />
+              </label>
+            </div>
+            <button
+              onClick={() => {
+                onAddStore(newStoreName, newStoreAddr);
+                setNewStoreName('');
+                setNewStoreAddr('');
+                setShowAddStoreModal(false);
+              }}
+              disabled={loading || !newStoreName.trim()}
+              className="w-full bg-indigo-600 text-white font-black py-4 rounded-3xl disabled:opacity-50"
+            >
+              CREAR TIENDA
+            </button>
+          </div>
         </div>
       )}
 
