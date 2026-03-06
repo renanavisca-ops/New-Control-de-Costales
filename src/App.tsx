@@ -1,5 +1,4 @@
-
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { User, Role, Costal, Apertura, CostalStatus, OfflineAction, Store } from './types';
 import { CATEGORIES, PIECES_MAP, INITIAL_STORES } from './constants';
 import { gasService } from './services/gasService';
@@ -8,10 +7,12 @@ import Scanner from './components/Scanner';
 type Screen = 'LOGIN' | 'REGISTRO' | 'RECEPCION' | 'EXISTENCIAS' | 'APERTURA' | 'METRICAS' | 'REPORTES';
 
 interface ReportData {
-  shopStats: { id: string, nombre: string, received: number, opened: number, pending: number }[];
-  userStats: { email: string, count: number, avgDiff: number }[];
+  shopStats: { id: string; nombre: string; received: number; opened: number; pending: number }[];
+  userStats: { email: string; count: number; avgDiff: number }[];
   avgGlobalDiff: number;
 }
+
+const ROOT_ADMIN_EMAIL = 'curiosidades2526@gmail.com';
 
 const generateUUID = () => {
   if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
@@ -22,7 +23,28 @@ const generateUUID = () => {
   });
 };
 
-// --- Sub-componentes estables ---
+const canAccessAdmin = (user: User | null) => user?.rol === Role.ADMIN || user?.rol === Role.ADMIN_2;
+const canAccessReports = (user: User | null) => user?.rol === Role.ADMIN;
+const isRootAdmin = (user: User | null) => (user?.email || '').toLowerCase() === ROOT_ADMIN_EMAIL;
+const canManageUser = (currentUser: User | null, target: User) => {
+  if (!currentUser) return false;
+  if (isRootAdmin(currentUser)) return true;
+  if (currentUser.rol === Role.ADMIN_2) {
+    return target.email.toLowerCase() !== ROOT_ADMIN_EMAIL && target.rol !== Role.ADMIN && target.rol !== Role.ADMIN_2;
+  }
+  return false;
+};
+const getAssignableRoles = (currentUser: User | null, editingUser: User | null = null) => {
+  if (!currentUser) return [Role.OPERADOR];
+  if (isRootAdmin(currentUser)) {
+    if (editingUser?.email.toLowerCase() === ROOT_ADMIN_EMAIL) return [Role.ADMIN];
+    return [Role.OPERADOR, Role.SUPERVISOR, Role.ADMIN_2];
+  }
+  if (currentUser.rol === Role.ADMIN_2) {
+    return [Role.OPERADOR, Role.SUPERVISOR];
+  }
+  return [Role.OPERADOR];
+};
 
 const LoginScreen = ({ loading, onLogin, onGoRegister }: any) => {
   const [email, setEmail] = useState('');
@@ -56,7 +78,39 @@ const LoginScreen = ({ loading, onLogin, onGoRegister }: any) => {
   );
 };
 
-const AperturaScreen = ({ user, metrics, isOnline, showNotify, enqueueAction, loadMetrics, setCurrentScreen }: any) => {
+const RegisterScreen = ({ loading, stores, onRegister, onBack }: any) => {
+  const [nombre, setNombre] = useState('');
+  const [email, setEmail] = useState('');
+  const [tienda, setTienda] = useState(stores[0]?.id_tienda || '');
+
+  useEffect(() => {
+    if (!tienda && stores[0]?.id_tienda) setTienda(stores[0].id_tienda);
+  }, [stores, tienda]);
+
+  return (
+    <div className="flex flex-col items-center justify-center min-h-[70vh] px-6">
+      <div className="w-full max-w-md bg-white p-10 rounded-[40px] shadow-2xl space-y-8 border border-gray-100">
+        <div className="text-center space-y-2">
+          <h2 className="text-3xl font-black tracking-tight">Nuevo operador</h2>
+          <p className="text-gray-400 font-medium">Los registros nuevos entran solo como OPERADOR.</p>
+        </div>
+        <div className="space-y-4">
+          <input value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Nombre completo" className="w-full p-5 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-3xl outline-none transition-all font-semibold" />
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="correo@empresa.com" className="w-full p-5 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-3xl outline-none transition-all font-semibold" />
+          <select value={tienda} onChange={(e) => setTienda(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-3xl outline-none transition-all font-semibold">
+            {stores.map((store: Store) => <option key={store.id_tienda} value={store.id_tienda}>{store.nombre}</option>)}
+          </select>
+          <button onClick={() => onRegister({ nombre, email, tienda })} disabled={loading} className="w-full bg-indigo-600 text-white font-black py-5 rounded-3xl shadow-xl shadow-indigo-100 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50">
+            {loading ? 'GUARDANDO...' : 'REGISTRAR OPERADOR'}
+          </button>
+          <button onClick={onBack} className="w-full text-gray-500 font-bold text-sm">Volver</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const AperturaScreen = ({ user, isOnline, showNotify, enqueueAction, loadMetrics }: any) => {
   const [code, setCode] = useState(localStorage.getItem('pending_apertura_code') || '');
   const [count, setCount] = useState('');
   const [selectedAperturaCategory, setSelectedAperturaCategory] = useState('');
@@ -64,9 +118,8 @@ const AperturaScreen = ({ user, metrics, isOnline, showNotify, enqueueAction, lo
   const [isOpening, setIsOpening] = useState(false);
 
   useEffect(() => {
-    if (code) {
-      checkCode(code);
-    }
+    if (code) checkCode(code);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const checkCode = async (c: string) => {
@@ -76,63 +129,61 @@ const AperturaScreen = ({ user, metrics, isOnline, showNotify, enqueueAction, lo
     localStorage.removeItem('pending_apertura_code');
     const res: any = await gasService.getInventory(user?.tienda || '');
     const item = res.data?.find((i: Costal) => i.codigo_barras === codeClean);
-    if (item) { 
+    if (item) {
       setCostalInfo(item);
       setSelectedAperturaCategory(item.categoria);
-    } else { 
-      showNotify('error', 'El costal NO está en stock (ya abierto o en otra tienda).'); 
-      setCostalInfo(null); 
+    } else {
+      showNotify('error', 'El costal NO está en stock.');
+      setCostalInfo(null);
     }
+  };
+
+  const resetOpenForm = () => {
+    setCode('');
+    setCount('');
+    setSelectedAperturaCategory('');
+    setCostalInfo(null);
   };
 
   const handleOpen = async () => {
     if (!costalInfo) return showNotify('error', 'Escanea un costal válido.');
     if (count === '') return showNotify('warning', 'Ingresa la cantidad contada.');
-    
+
     setIsOpening(true);
     try {
       const expectedPieces = PIECES_MAP[selectedAperturaCategory] || costalInfo.piezas_asignadas;
-      const countNum = parseInt(count);
+      const countNum = parseInt(count, 10);
       const diff = countNum - expectedPieces;
-      
-      const apertura: Apertura = { 
-        id_apertura: generateUUID(), 
-        codigo_barras: costalInfo.codigo_barras, 
-        categoria: selectedAperturaCategory, 
-        tienda: user?.tienda || '', 
-        usuario_apertura: user?.email || '', 
-        fecha_apertura: new Date().toISOString(), 
-        piezas_asignadas: expectedPieces, 
-        piezas_contadas: countNum, // Conteo real ingresado
-        diferencia: diff 
+      const apertura: Apertura = {
+        id_apertura: generateUUID(),
+        codigo_barras: costalInfo.codigo_barras,
+        categoria: selectedAperturaCategory,
+        tienda: user?.tienda || '',
+        usuario_apertura: user?.email || '',
+        fecha_apertura: new Date().toISOString(),
+        piezas_asignadas: expectedPieces,
+        piezas_contadas: countNum,
+        diferencia: diff,
       };
-      
-      if (Math.abs(diff) > 20) {
-        if (!confirm(`Diferencia de ${diff} piezas detectada. ¿Confirmas el conteo real de ${countNum} piezas?`)) {
-          setIsOpening(false);
-          return;
-        }
+
+      if (Math.abs(diff) > 20 && !confirm(`Diferencia de ${diff} piezas detectada. ¿Confirmas el conteo real de ${countNum}?`)) {
+        setIsOpening(false);
+        return;
       }
 
       if (isOnline) {
         const res: any = await gasService.openCostal(apertura);
-        if (res.ok) { 
-          showNotify('success', `Costal ${costalInfo.codigo_barras} abierto y descontado.`); 
-          await loadMetrics(); 
-          setCode('');
-          setCount('');
-          setCostalInfo(null);
-          setSelectedAperturaCategory('');
+        if (res.ok) {
+          showNotify('success', `Costal ${costalInfo.codigo_barras} abierto.`);
+          await loadMetrics();
+          resetOpenForm();
         } else {
           showNotify('error', res.error || 'Error al procesar.');
         }
-      } else { 
-        enqueueAction({ type: 'OPEN_COSTAL', payload: apertura }); 
+      } else {
+        enqueueAction({ type: 'OPEN_COSTAL', payload: apertura });
         showNotify('success', 'Guardado localmente (Offline).');
-        setCode('');
-        setCount('');
-        setCostalInfo(null);
-        setSelectedAperturaCategory('');
+        resetOpenForm();
       }
     } catch (err) {
       console.error(err);
@@ -148,7 +199,7 @@ const AperturaScreen = ({ user, metrics, isOnline, showNotify, enqueueAction, lo
         <h2 className="text-xl font-black mb-4 tracking-tighter">Apertura y Conteo</h2>
         <Scanner onScan={checkCode} placeholder="Escanea código para validar stock..." />
       </div>
-      
+
       {costalInfo && (
         <div className="bg-white p-8 rounded-[32px] shadow-sm space-y-6 animate-in zoom-in-95">
           <div className="border-b pb-4">
@@ -159,11 +210,7 @@ const AperturaScreen = ({ user, metrics, isOnline, showNotify, enqueueAction, lo
           <div className="space-y-4">
             <label className="block space-y-2">
               <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Confirmar Categoría</span>
-              <select 
-                value={selectedAperturaCategory} 
-                onChange={(e) => setSelectedAperturaCategory(e.target.value)}
-                className="w-full p-4 bg-gray-50 rounded-2xl outline-none font-black text-gray-700"
-              >
+              <select value={selectedAperturaCategory} onChange={(e) => setSelectedAperturaCategory(e.target.value)} className="w-full p-4 bg-gray-50 rounded-2xl outline-none font-black text-gray-700">
                 {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
               <p className="text-[9px] font-bold text-indigo-400">Pzs Esperadas: {PIECES_MAP[selectedAperturaCategory] || costalInfo.piezas_asignadas}</p>
@@ -171,21 +218,11 @@ const AperturaScreen = ({ user, metrics, isOnline, showNotify, enqueueAction, lo
 
             <label className="block space-y-2">
               <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Conteo Real (Piezas Contadas)</span>
-              <input 
-                type="number" 
-                value={count} 
-                onChange={(e) => setCount(e.target.value)} 
-                placeholder="000" 
-                className="w-full p-6 bg-orange-50 rounded-3xl outline-none text-center text-5xl font-black text-orange-600 focus:ring-4 focus:ring-orange-100 transition-all" 
-              />
+              <input type="number" value={count} onChange={(e) => setCount(e.target.value)} placeholder="000" className="w-full p-6 bg-orange-50 rounded-3xl outline-none text-center text-5xl font-black text-orange-600 focus:ring-4 focus:ring-orange-100 transition-all" />
             </label>
           </div>
 
-          <button 
-            onClick={handleOpen} 
-            disabled={isOpening}
-            className="w-full bg-indigo-600 text-white font-black py-6 rounded-[32px] shadow-xl shadow-indigo-100 uppercase tracking-widest hover:scale-[1.02] active:scale-95 transition-all text-sm disabled:opacity-50"
-          >
+          <button onClick={handleOpen} disabled={isOpening} className="w-full bg-indigo-600 text-white font-black py-6 rounded-[32px] shadow-xl shadow-indigo-100 uppercase tracking-widest hover:scale-[1.02] active:scale-95 transition-all text-sm disabled:opacity-50">
             {isOpening ? 'PROCESANDO...' : 'FINALIZAR Y DESCONTAR'}
           </button>
         </div>
@@ -199,7 +236,7 @@ const App: React.FC = () => {
   const [currentScreen, setCurrentScreen] = useState<Screen>('LOGIN');
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [offlineQueue, setOfflineQueue] = useState<OfflineAction[]>([]);
-  const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'warning', msg: string } | null>(null);
+  const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'warning'; msg: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [stores, setStores] = useState<Store[]>(INITIAL_STORES);
   const [metrics, setMetrics] = useState<ReportData | null>(null);
@@ -220,13 +257,12 @@ const App: React.FC = () => {
     if (savedQueue) {
       const parsed = JSON.parse(savedQueue);
       setOfflineQueue(parsed);
-      const codes = parsed.map((a: OfflineAction) => a.payload.codigo_barras);
+      const codes = parsed.map((a: OfflineAction) => a.payload.codigo_barras).filter(Boolean);
       setSessionScannedCodes(prev => new Set([...prev, ...codes]));
     }
     const savedStores = localStorage.getItem(STORES_CACHE_KEY);
-    if (savedStores) {
-      setStores(JSON.parse(savedStores));
-    }
+    if (savedStores) setStores(JSON.parse(savedStores));
+
     const handleStatusChange = () => setIsOnline(navigator.onLine);
     window.addEventListener('online', handleStatusChange);
     window.addEventListener('offline', handleStatusChange);
@@ -264,25 +300,54 @@ const App: React.FC = () => {
     if (!email) return showNotify('error', 'Ingresa un correo');
     setLoading(true);
     try {
-      const res: any = await gasService.auth(email);
+      const res: any = await gasService.auth(email.trim().toLowerCase());
       if (res.ok && res.data) {
         setUser(res.data);
         localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(res.data));
         setCurrentScreen('RECEPCION');
         showNotify('success', `Bienvenido ${res.data.nombre}`);
       } else {
-        showNotify('error', 'Usuario no encontrado.');
+        showNotify('error', res.error || 'Usuario no encontrado.');
       }
-    } catch (e) { showNotify('error', 'Error al autenticar.'); }
-    finally { setLoading(false); }
+    } catch {
+      showNotify('error', 'Error al autenticar.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRegister = async ({ nombre, email, tienda }: { nombre: string; email: string; tienda: string }) => {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!nombre.trim() || !cleanEmail || !tienda) return showNotify('error', 'Completa todos los campos.');
+    if (cleanEmail === ROOT_ADMIN_EMAIL) return showNotify('error', 'Ese correo está reservado para el administrador principal.');
+    setLoading(true);
+    try {
+      const newUser: User = {
+        nombre: nombre.trim(),
+        email: cleanEmail,
+        tienda,
+        rol: Role.OPERADOR,
+      };
+      const res: any = await gasService.register(newUser);
+      if (res.ok) {
+        showNotify('success', 'Operador registrado.');
+        setCurrentScreen('LOGIN');
+      } else {
+        showNotify('error', res.error || 'No se pudo registrar.');
+      }
+    } catch {
+      showNotify('error', 'Error al registrar.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleAddStore = async (name: string, address: string) => {
     const cleanName = name.trim();
     if (!cleanName) return;
-    if (stores.some(s => s.nombre.toLowerCase() === cleanName.toLowerCase())) {
-      return showNotify('error', 'La tienda ya existe.');
-    }
+    if (!canAccessAdmin(user)) return showNotify('error', 'Sin permiso.');
+    if (stores.some(s => s.nombre.toLowerCase() === cleanName.toLowerCase())) return showNotify('error', 'La tienda ya existe.');
+
     setLoading(true);
     const newId = 'T' + (stores.length + 1).toString().padStart(2, '0');
     const newStore = { id_tienda: newId, nombre: cleanName, direccion: address };
@@ -293,12 +358,18 @@ const App: React.FC = () => {
         setStores(updatedStores);
         localStorage.setItem(STORES_CACHE_KEY, JSON.stringify(updatedStores));
         showNotify('success', 'Tienda creada.');
-      } else { showNotify('error', res.error || 'Error al crear.'); }
-    } catch (e) { showNotify('error', 'Error de red.'); }
-    finally { setLoading(false); }
+      } else {
+        showNotify('error', res.error || 'Error al crear.');
+      }
+    } catch {
+      showNotify('error', 'Error de red.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleUpdateStore = async (store: Store) => {
+    if (!canAccessAdmin(user)) return showNotify('error', 'Sin permiso.');
     setLoading(true);
     try {
       const res: any = await gasService.updateTienda(store);
@@ -308,8 +379,11 @@ const App: React.FC = () => {
         localStorage.setItem(STORES_CACHE_KEY, JSON.stringify(updatedStores));
         showNotify('success', 'Tienda actualizada.');
       }
-    } catch (e) { showNotify('error', 'Error al actualizar.'); }
-    finally { setLoading(false); }
+    } catch {
+      showNotify('error', 'Error al actualizar.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const enqueueAction = (action: Omit<OfflineAction, 'id' | 'timestamp' | 'status'>) => {
@@ -330,8 +404,8 @@ const App: React.FC = () => {
     { id: 'RECEPCION', label: 'Recibir', icon: '📥', show: true },
     { id: 'EXISTENCIAS', label: 'Stock', icon: '📦', show: true },
     { id: 'APERTURA', label: 'Abrir', icon: '✂️', show: true },
-    { id: 'METRICAS', label: 'Admin', icon: '⚙️', show: user?.rol === Role.ADMIN },
-    { id: 'REPORTES', label: 'Reportes', icon: '📋', show: user?.rol === Role.ADMIN },
+    { id: 'METRICAS', label: 'Admin', icon: '⚙️', show: canAccessAdmin(user) },
+    { id: 'REPORTES', label: 'Reportes', icon: '📋', show: canAccessReports(user) },
   ];
 
   return (
@@ -346,12 +420,12 @@ const App: React.FC = () => {
         </div>
         {user && (
           <div className="flex flex-col items-end">
-             <div className="bg-indigo-50 text-indigo-600 text-[10px] font-black px-3 py-1 rounded-full uppercase mb-1">{user.rol}</div>
-             <button onClick={handleLogout} className="text-[10px] font-black text-gray-300 hover:text-red-500 uppercase">Salir</button>
+            <div className="bg-indigo-50 text-indigo-600 text-[10px] font-black px-3 py-1 rounded-full uppercase mb-1">{user.rol}</div>
+            <button onClick={handleLogout} className="text-[10px] font-black text-gray-300 hover:text-red-500 uppercase">Salir</button>
           </div>
         )}
       </header>
-      
+
       <main className="p-8">
         {notification && (
           <div className={`fixed top-20 left-8 right-8 z-[60] p-5 rounded-[24px] shadow-2xl border-2 animate-in slide-in-from-top-12 duration-500 ${notification.type === 'success' ? 'bg-green-50 border-green-200 text-green-900' : notification.type === 'error' ? 'bg-red-50 border-red-200 text-red-900' : 'bg-orange-50 border-orange-200 text-orange-900'}`}>
@@ -360,26 +434,12 @@ const App: React.FC = () => {
         )}
 
         {currentScreen === 'LOGIN' && <LoginScreen loading={loading} onLogin={handleLogin} onGoRegister={() => setCurrentScreen('REGISTRO')} />}
-        
-        {currentScreen === 'APERTURA' && (
-          <AperturaScreen 
-            user={user} 
-            metrics={metrics} 
-            isOnline={isOnline} 
-            showNotify={showNotify} 
-            enqueueAction={enqueueAction} 
-            loadMetrics={loadMetrics} 
-            setCurrentScreen={setCurrentScreen} 
-          />
-        )}
-
-        {currentScreen === 'EXISTENCIAS' && <ExistenciasView user={user} showNotify={showNotify} onOpen={(code: string) => { localStorage.setItem('pending_apertura_code', code); setCurrentScreen('APERTURA'); }} />}
-        
+        {currentScreen === 'REGISTRO' && <RegisterScreen loading={loading} stores={stores} onRegister={handleRegister} onBack={() => setCurrentScreen('LOGIN')} />}
+        {currentScreen === 'APERTURA' && <AperturaScreen user={user} isOnline={isOnline} showNotify={showNotify} enqueueAction={enqueueAction} loadMetrics={loadMetrics} />}
+        {currentScreen === 'EXISTENCIAS' && <ExistenciasView user={user} onOpen={(code: string) => { localStorage.setItem('pending_apertura_code', code); setCurrentScreen('APERTURA'); }} />}
         {currentScreen === 'RECEPCION' && <RecepcionView user={user} isOnline={isOnline} showNotify={showNotify} enqueueAction={enqueueAction} loadMetrics={loadMetrics} selectedCategory={selectedCategory} setSelectedCategory={(cat: string) => { setSelectedCategory(cat); localStorage.setItem('cc_last_category', cat); }} sessionScannedCodes={sessionScannedCodes} setSessionScannedCodes={setSessionScannedCodes} />}
-        
-        {currentScreen === 'METRICAS' && user?.rol === Role.ADMIN && <MetricasView metrics={metrics} user={user} stores={stores} showNotify={showNotify} onAddStore={handleAddStore} onUpdateStore={handleUpdateStore} loading={loading} />}
-        
-        {currentScreen === 'REPORTES' && user?.rol === Role.ADMIN && <ReportesView stores={stores} metrics={metrics} showNotify={showNotify} />}
+        {currentScreen === 'METRICAS' && canAccessAdmin(user) && <MetricasView metrics={metrics} user={user} stores={stores} showNotify={showNotify} onAddStore={handleAddStore} onUpdateStore={handleUpdateStore} loading={loading} />}
+        {currentScreen === 'REPORTES' && canAccessReports(user) && <ReportesView />}
       </main>
 
       {user && (
@@ -396,15 +456,14 @@ const App: React.FC = () => {
   );
 };
 
-// --- Vistas secundarias ---
-
-const ExistenciasView = ({ user, showNotify, onOpen }: any) => {
+const ExistenciasView = ({ user, onOpen }: any) => {
   const [items, setItems] = useState<Costal[]>([]);
   const loadData = useCallback(async () => {
     const res: any = await gasService.getInventory(user?.tienda || '');
     if (res.ok) setItems(res.data);
   }, [user?.tienda]);
   useEffect(() => { loadData(); }, [loadData]);
+
   return (
     <div className="space-y-4">
       <h2 className="text-2xl font-black tracking-tighter">Stock en Tienda <span className="text-indigo-600">({items.length})</span></h2>
@@ -432,23 +491,34 @@ const RecepcionView = ({ user, isOnline, showNotify, enqueueAction, loadMetrics,
     if (sessionScannedCodes.has(codeClean)) return showNotify('error', `Ya escaneado: ${codeClean}`);
     if (isOnline) {
       const check: any = await gasService.checkDuplicate(codeClean);
-      if (check.exists) { 
+      if (check.exists) {
         setSessionScannedCodes((prev: Set<string>) => new Set(prev).add(codeClean));
-        return showNotify('error', 'Ya registrado en el sistema.'); 
+        return showNotify('error', 'Ya registrado en el sistema.');
       }
     }
     const pieces = selectedCategory === 'SALDO' ? 0 : PIECES_MAP[selectedCategory];
-    const newCostal: Costal = { 
-      codigo_barras: codeClean, categoria: selectedCategory, tienda: user?.tienda || '', 
-      fecha_recepcion: new Date().toISOString(), usuario_recibe: user?.email || '', 
-      piezas_asignadas: pieces, estado: CostalStatus.RECIBIDO, notas: '' 
+    const newCostal: Costal = {
+      codigo_barras: codeClean,
+      categoria: selectedCategory,
+      tienda: user?.tienda || '',
+      fecha_recepcion: new Date().toISOString(),
+      usuario_recibe: user?.email || '',
+      piezas_asignadas: pieces,
+      estado: CostalStatus.RECIBIDO,
+      notas: '',
     };
     setSessionScannedCodes((prev: Set<string>) => new Set(prev).add(codeClean));
     if (isOnline) {
       const res: any = await gasService.addCostal(newCostal);
-      if (res.ok) { showNotify('success', `RECIBIDO: ${codeClean}`); loadMetrics(); }
-    } else { enqueueAction({ type: 'ADD_COSTAL', payload: newCostal }); }
+      if (res.ok) {
+        showNotify('success', `RECIBIDO: ${codeClean}`);
+        loadMetrics();
+      }
+    } else {
+      enqueueAction({ type: 'ADD_COSTAL', payload: newCostal });
+    }
   };
+
   return (
     <div className="space-y-6">
       <div className="bg-white p-8 rounded-[32px] shadow-sm space-y-4">
@@ -465,14 +535,15 @@ const RecepcionView = ({ user, isOnline, showNotify, enqueueAction, loadMetrics,
   );
 };
 
-
 const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateStore, loading }: any) => {
   const [newStoreName, setNewStoreName] = useState('');
   const [newStoreAddr, setNewStoreAddr] = useState('');
   const [users, setUsers] = useState<User[]>([]);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [editingStore, setEditingStore] = useState<Store | null>(null);
-  const [userCategoryPerf, setUserCategoryPerf] = useState<{ categoria: string; avgDiff: number; count: number }[]>([]);
+  const [showStores, setShowStores] = useState(false);
+
+  const limitedAdmin = user?.rol === Role.ADMIN_2;
 
   useEffect(() => {
     gasService.listUsuarios().then((res: any) => {
@@ -480,61 +551,25 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
     });
   }, []);
 
-  useEffect(() => {
-    const loadUserCategoryPerf = async () => {
-      if (!user?.email) return;
-      try {
-        const res: any = await gasService.getDetailedReport({
-          type: 'ABIERTOS',
-          dateFrom: '2000-01-01',
-          dateTo: '2100-12-31',
-          tienda: 'ALL',
-          usuario: user.email
-        });
-
-        if (!res.ok || !Array.isArray(res.data)) {
-          setUserCategoryPerf([]);
-          return;
-        }
-
-        const grouped = new Map<string, { categoria: string; totalDiff: number; count: number }>();
-
-        res.data.forEach((item: Apertura) => {
-          const categoria = item.categoria || 'SIN CATEGORÍA';
-          if (!grouped.has(categoria)) {
-            grouped.set(categoria, { categoria, totalDiff: 0, count: 0 });
-          }
-          const current = grouped.get(categoria)!;
-          current.totalDiff += Number(item.diferencia ?? 0);
-          current.count += 1;
-        });
-
-        const rows = Array.from(grouped.values())
-          .map((row) => ({
-            categoria: row.categoria,
-            avgDiff: row.count > 0 ? row.totalDiff / row.count : 0,
-            count: row.count
-          }))
-          .sort((a, b) => a.categoria.localeCompare(b.categoria));
-
-        setUserCategoryPerf(rows);
-      } catch (error) {
-        console.error(error);
-        setUserCategoryPerf([]);
-      }
-    };
-
-    loadUserCategoryPerf();
-  }, [user?.email]);
+  const visibleUsers = useMemo(() => {
+    if (!limitedAdmin) return users;
+    return users.filter((u) => u.email.toLowerCase() !== ROOT_ADMIN_EMAIL && u.rol !== Role.ADMIN && u.rol !== Role.ADMIN_2);
+  }, [users, limitedAdmin]);
 
   const handleUpdateUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingUser) return;
+    if (!editingUser || !canManageUser(user, editingUser)) return showNotify('error', 'No puedes modificar ese usuario.');
+
+    const allowedRoles = getAssignableRoles(user, editingUser);
+    if (!allowedRoles.includes(editingUser.rol)) return showNotify('error', 'No puedes asignar ese rol.');
+
     const res: any = await gasService.updateUsuario(editingUser);
     if (res.ok) {
       showNotify('success', 'Usuario actualizado');
       setUsers(prev => prev.map(u => u.email === editingUser.email ? editingUser : u));
       setEditingUser(null);
+    } else {
+      showNotify('error', res.error || 'No se pudo actualizar.');
     }
   };
 
@@ -544,117 +579,70 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
     <div className="space-y-8 pb-12">
       <div className="bg-indigo-600 p-8 rounded-[40px] text-white shadow-2xl">
         <h2 className="text-[10px] font-black opacity-60 uppercase tracking-widest mb-1">Tu Rendimiento</h2>
-        <p className="text-4xl font-black">{userPerf?.avgDiff.toFixed(1) || '0.0'}</p>
-        <p className="text-[10px] font-bold opacity-80 uppercase mt-1">DIFERENCIA PROMEDIO GENERAL (Pzs)</p>
+        <p className="text-4xl font-black">{userPerf?.avgDiff?.toFixed(1) || '0.0'}</p>
+        <p className="text-[10px] font-bold opacity-80 uppercase mt-1">DIFERENCIA PROMEDIO (Pzs)</p>
       </div>
 
-      <div className="bg-white p-6 rounded-[32px] shadow-sm space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-black text-gray-900">Promedio por Categoría</h3>
-          <span className="text-[10px] font-black text-indigo-500 uppercase tracking-widest">
-            {userCategoryPerf.length} categorías
-          </span>
+      <div className="space-y-4">
+        <h3 className="text-lg font-black text-gray-900 px-2 flex justify-between items-center">
+          Gestión de Usuarios
+          <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest">{visibleUsers.length} Registrados</span>
+        </h3>
+        <div className="space-y-3">
+          {visibleUsers.map(u => (
+            <div key={u.email} className="bg-white p-6 rounded-[32px] shadow-sm border border-gray-50 flex justify-between items-center group">
+              <div>
+                <p className="font-black text-gray-900 text-sm">{u.nombre}</p>
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">{u.email}</p>
+                <div className="flex gap-2 mt-1 flex-wrap">
+                  <span className="bg-indigo-50 text-indigo-600 text-[8px] px-2 py-0.5 rounded-full font-black uppercase">{u.rol}</span>
+                  <span className="bg-gray-50 text-gray-500 text-[8px] px-2 py-0.5 rounded-full font-black uppercase">{stores.find((s: Store) => s.id_tienda === u.tienda)?.nombre || u.tienda}</span>
+                </div>
+              </div>
+              {canManageUser(user, u) && (
+                <button onClick={() => setEditingUser({ ...u })} className="bg-gray-100 p-3 rounded-2xl hover:bg-indigo-600 hover:text-white transition-all text-gray-400 group-hover:scale-105 active:scale-95">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        <div className="flex items-center justify-between px-2">
+          <h3 className="text-lg font-black text-gray-900">Gestión de Tiendas</h3>
+          <button onClick={() => setShowStores(!showStores)} className="bg-indigo-50 text-indigo-600 px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest">
+            {showStores ? 'Ocultar' : 'Más'}
+          </button>
         </div>
 
-        {userCategoryPerf.length === 0 ? (
-          <div className="text-center p-10 text-gray-300 font-black border border-dashed rounded-[28px]">
-            Sin aperturas registradas
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {userCategoryPerf.map((row) => (
-              <div key={row.categoria} className="bg-gray-50 p-5 rounded-[28px] flex items-center justify-between">
-                <div>
-                  <p className="font-black text-gray-900 text-sm">{row.categoria}</p>
-                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">
-                    {row.count} aperturas
-                  </p>
+        {showStores && (
+          <div className="grid grid-cols-1 gap-4">
+            {stores.map((s: Store) => (
+              <div key={s.id_tienda} className="bg-white p-6 rounded-[32px] shadow-sm flex items-center justify-between border border-gray-50 group">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="bg-indigo-50 text-indigo-600 text-[8px] px-2 py-0.5 rounded-full font-black">{s.id_tienda}</span>
+                    <p className="font-black text-gray-900 text-sm uppercase">{s.nombre}</p>
+                  </div>
+                  <p className="text-[10px] font-bold text-gray-400 mt-1 uppercase leading-tight italic">{s.direccion || 'Sin dirección registrada'}</p>
                 </div>
-                <div className="text-right">
-                  <p className="text-2xl font-black text-indigo-600">{row.avgDiff.toFixed(1)}</p>
-                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Promedio</p>
-                </div>
+                <button onClick={() => setEditingStore({ ...s })} className="bg-gray-100 p-3 rounded-2xl hover:bg-indigo-600 hover:text-white transition-all text-gray-400">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" /></svg>
+                </button>
               </div>
             ))}
           </div>
         )}
       </div>
 
-      {/* --- User Management (Admin Only) --- */}
-      <div className="space-y-4">
-        <h3 className="text-lg font-black text-gray-900 px-2 flex justify-between items-center">
-          Gestión de Usuarios
-          <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest">{users.length} Registrados</span>
-        </h3>
-        <div className="space-y-3">
-          {users.map(u => (
-            <div key={u.email} className="bg-white p-6 rounded-[32px] shadow-sm border border-gray-50 flex justify-between items-center group">
-              <div>
-                <p className="font-black text-gray-900 text-sm">{u.nombre}</p>
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">{u.email}</p>
-                <div className="flex gap-2 mt-1">
-                   <span className="bg-indigo-50 text-indigo-600 text-[8px] px-2 py-0.5 rounded-full font-black uppercase">{u.rol}</span>
-                   <span className="bg-gray-50 text-gray-500 text-[8px] px-2 py-0.5 rounded-full font-black uppercase">{stores.find(s => s.id_tienda === u.tienda)?.nombre || u.tienda}</span>
-                </div>
-              </div>
-              <button 
-                onClick={() => setEditingUser(u)} 
-                className="bg-gray-100 p-3 rounded-2xl hover:bg-indigo-600 hover:text-white transition-all text-gray-400 group-hover:scale-105 active:scale-95"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* --- Store Management --- */}
-      <div className="space-y-4">
-        <h3 className="text-lg font-black text-gray-900 px-2">Gestión de Tiendas</h3>
-        <div className="grid grid-cols-1 gap-4">
-          {stores.map((s: Store) => (
-            <div key={s.id_tienda} className="bg-white p-6 rounded-[32px] shadow-sm flex items-center justify-between border border-gray-50 group">
-              <div className="flex-1">
-                <div className="flex items-center gap-2">
-                   <span className="bg-indigo-50 text-indigo-600 text-[8px] px-2 py-0.5 rounded-full font-black">{s.id_tienda}</span>
-                   <p className="font-black text-gray-900 text-sm uppercase">{s.nombre}</p>
-                </div>
-                <p className="text-[10px] font-bold text-gray-400 mt-1 uppercase leading-tight italic">{s.direccion || 'Sin dirección registrada'}</p>
-              </div>
-              <button 
-                onClick={() => setEditingStore(s)} 
-                className="bg-gray-100 p-3 rounded-2xl hover:bg-indigo-600 hover:text-white transition-all text-gray-400"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" /></svg>
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* --- Add Store Form --- */}
       <div className="bg-gray-900 p-8 rounded-[40px] text-white space-y-4 shadow-2xl">
         <h2 className="font-black text-[10px] uppercase tracking-widest opacity-40">Nueva Sede</h2>
         <div className="space-y-3">
-          <input 
-            type="text" 
-            value={newStoreName} 
-            onChange={e => setNewStoreName(e.target.value)} 
-            placeholder="Nombre de la Tienda" 
-            className="w-full p-4 bg-gray-800 rounded-2xl outline-none font-bold text-sm text-white focus:ring-2 focus:ring-indigo-500" 
-          />
-          <input 
-            type="text" 
-            value={newStoreAddr} 
-            onChange={e => setNewStoreAddr(e.target.value)} 
-            placeholder="Dirección completa..." 
-            className="w-full p-4 bg-gray-800 rounded-2xl outline-none font-bold text-sm text-white focus:ring-2 focus:ring-indigo-500" 
-          />
-          <button 
-            onClick={() => { onAddStore(newStoreName, newStoreAddr); setNewStoreName(''); setNewStoreAddr(''); }} 
-            disabled={loading || !newStoreName} 
-            className="w-full bg-indigo-600 py-4 rounded-2xl font-black text-xs uppercase shadow-lg shadow-indigo-900/20 active:scale-95 transition-all"
-          >
+          <input type="text" value={newStoreName} onChange={e => setNewStoreName(e.target.value)} placeholder="Nombre de la Tienda" className="w-full p-4 bg-gray-800 rounded-2xl outline-none font-bold text-sm text-white focus:ring-2 focus:ring-indigo-500" />
+          <input type="text" value={newStoreAddr} onChange={e => setNewStoreAddr(e.target.value)} placeholder="Dirección completa..." className="w-full p-4 bg-gray-800 rounded-2xl outline-none font-bold text-sm text-white focus:ring-2 focus:ring-indigo-500" />
+          <button onClick={() => { onAddStore(newStoreName, newStoreAddr); setNewStoreName(''); setNewStoreAddr(''); }} disabled={loading || !newStoreName} className="w-full bg-indigo-600 py-4 rounded-2xl font-black text-xs uppercase shadow-lg shadow-indigo-900/20 active:scale-95 transition-all disabled:opacity-50">
             Añadir Tienda
           </button>
         </div>
@@ -662,423 +650,105 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
 
       {editingUser && (
         <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-4">
-           <form onSubmit={handleUpdateUser} className="bg-white w-full max-w-md rounded-[40px] p-8 space-y-6 animate-in slide-in-from-bottom-20 shadow-2xl">
-              <div className="flex justify-between items-center">
-                <h3 className="text-xl font-black">Editar Usuario</h3>
-                <button type="button" onClick={() => setEditingUser(null)} className="text-gray-400 font-bold">Cerrar</button>
-              </div>
+          <form onSubmit={handleUpdateUser} className="bg-white w-full max-w-md rounded-[40px] p-8 space-y-6 animate-in slide-in-from-bottom-20 shadow-2xl">
+            <div className="flex justify-between items-center">
+              <h3 className="text-xl font-black">Editar Usuario</h3>
+              <button type="button" onClick={() => setEditingUser(null)} className="text-gray-400 font-bold">Cerrar</button>
+            </div>
 
-              <div className="space-y-4">
-                <label className="block space-y-1">
-                  <span className="text-[10px] font-black text-gray-400 uppercase">Nombre Completo</span>
-                  <input type="text" value={editingUser.nombre} onChange={e => setEditingUser({...editingUser, nombre: e.target.value})} className="w-full p-4 bg-gray-50 rounded-2xl font-bold" />
-                </label>
-                <label className="block space-y-1">
-                  <span className="text-[10px] font-black text-gray-400 uppercase">Sede Asignada</span>
-                  <select value={editingUser.tienda} onChange={e => setEditingUser({...editingUser, tienda: e.target.value})} className="w-full p-4 bg-gray-50 rounded-2xl font-bold">
-                    {stores.map(s => <option key={s.id_tienda} value={s.id_tienda}>{s.nombre}</option>)}
-                  </select>
-                </label>
-                <label className="block space-y-1">
-                  <span className="text-[10px] font-black text-gray-400 uppercase">Rol / Permisos</span>
-                  <select value={editingUser.rol} onChange={e => setEditingUser({...editingUser, rol: e.target.value as Role})} className="w-full p-4 bg-gray-50 rounded-2xl font-bold">
-                    {Object.values(Role).map(r => <option key={r} value={r}>{r}</option>)}
-                  </select>
-                </label>
-                <label className="block space-y-1">
-                  <span className="text-[10px] font-black text-gray-400 uppercase">Cambiar Contraseña</span>
-                  <input type="password" value={editingUser.password || ''} onChange={e => setEditingUser({...editingUser, password: e.target.value})} className="w-full p-4 bg-gray-50 rounded-2xl font-bold" placeholder="Nueva contraseña..." />
-                </label>
-              </div>
+            <div className="space-y-4">
+              <label className="block space-y-1">
+                <span className="text-[10px] font-black text-gray-400 uppercase">Nombre Completo</span>
+                <input type="text" value={editingUser.nombre} onChange={e => setEditingUser({ ...editingUser, nombre: e.target.value })} className="w-full p-4 bg-gray-50 rounded-2xl font-bold" />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-[10px] font-black text-gray-400 uppercase">Sede Asignada</span>
+                <select value={editingUser.tienda} onChange={e => setEditingUser({ ...editingUser, tienda: e.target.value })} className="w-full p-4 bg-gray-50 rounded-2xl font-bold">
+                  {stores.map((s: Store) => <option key={s.id_tienda} value={s.id_tienda}>{s.nombre}</option>)}
+                </select>
+              </label>
+              <label className="block space-y-1">
+                <span className="text-[10px] font-black text-gray-400 uppercase">Rol / Permisos</span>
+                <select value={editingUser.rol} onChange={e => setEditingUser({ ...editingUser, rol: e.target.value as Role })} className="w-full p-4 bg-gray-50 rounded-2xl font-bold">
+                  {getAssignableRoles(user, editingUser).map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </label>
+            </div>
 
-              <button type="submit" className="w-full bg-indigo-600 text-white font-black py-4 rounded-3xl shadow-xl shadow-indigo-100">GUARDAR CAMBIOS</button>
-           </form>
+            <button type="submit" className="w-full bg-indigo-600 text-white font-black py-4 rounded-3xl shadow-xl shadow-indigo-100">GUARDAR CAMBIOS</button>
+          </form>
         </div>
       )}
 
       {editingStore && (
         <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-4">
-           <div className="bg-white w-full max-w-md rounded-[40px] p-8 space-y-6 shadow-2xl">
-              <div className="flex justify-between items-center">
-                <h3 className="text-xl font-black">Editar Sede</h3>
-                <button onClick={() => setEditingStore(null)} className="text-gray-400 font-bold">Cerrar</button>
-              </div>
-              <div className="space-y-4">
-                <label className="block space-y-1">
-                  <span className="text-[10px] font-black text-gray-400 uppercase">Nombre</span>
-                  <input type="text" value={editingStore.nombre} onChange={e => setEditingStore({...editingStore, nombre: e.target.value})} className="w-full p-4 bg-gray-50 rounded-2xl font-bold" />
-                </label>
-                <label className="block space-y-1">
-                  <span className="text-[10px] font-black text-gray-400 uppercase">Dirección</span>
-                  <textarea value={editingStore.direccion || ''} onChange={e => setEditingStore({...editingStore, direccion: e.target.value})} className="w-full p-4 bg-gray-50 rounded-2xl font-bold h-24" />
-                </label>
-              </div>
-              <button onClick={() => { onUpdateStore(editingStore); setEditingStore(null); }} className="w-full bg-gray-900 text-white font-black py-4 rounded-3xl">ACTUALIZAR SEDE</button>
-           </div>
+          <div className="bg-white w-full max-w-md rounded-[40px] p-8 space-y-6 shadow-2xl">
+            <div className="flex justify-between items-center">
+              <h3 className="text-xl font-black">Editar Sede</h3>
+              <button onClick={() => setEditingStore(null)} className="text-gray-400 font-bold">Cerrar</button>
+            </div>
+            <div className="space-y-4">
+              <label className="block space-y-1">
+                <span className="text-[10px] font-black text-gray-400 uppercase">Nombre</span>
+                <input type="text" value={editingStore.nombre} onChange={e => setEditingStore({ ...editingStore, nombre: e.target.value })} className="w-full p-4 bg-gray-50 rounded-2xl font-bold" />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-[10px] font-black text-gray-400 uppercase">Dirección</span>
+                <textarea value={editingStore.direccion || ''} onChange={e => setEditingStore({ ...editingStore, direccion: e.target.value })} className="w-full p-4 bg-gray-50 rounded-2xl font-bold h-24" />
+              </label>
+            </div>
+            <button onClick={() => { onUpdateStore(editingStore); setEditingStore(null); }} className="w-full bg-gray-900 text-white font-black py-4 rounded-3xl">ACTUALIZAR SEDE</button>
+          </div>
         </div>
       )}
     </div>
   );
 };
 
-
-
-const ReportesView = ({ stores, metrics, showNotify }: any) => {
-  const getLocalDateString = (value?: string | Date) => {
-    const date = value ? new Date(value) : new Date();
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
-
-  const today = getLocalDateString();
-  const [dateFrom, setDateFrom] = useState(today);
-  const [dateTo, setDateTo] = useState(today);
-  const [reportType, setReportType] = useState<'STOCK' | 'RECIBIDOS' | 'ABIERTOS'>('RECIBIDOS');
-  const [exportFormat, setExportFormat] = useState<'EXCEL' | 'PDF'>('EXCEL');
+const ReportesView = () => {
+  const [dateFrom, setDateFrom] = useState(new Date().toISOString().split('T')[0]);
+  const [dateTo, setDateTo] = useState(new Date().toISOString().split('T')[0]);
+  const [reportType, setReportType] = useState('RECIBIDOS');
   const [results, setResults] = useState<any[]>([]);
-  const [groupedRows, setGroupedRows] = useState<{ categoria: string; costales: number; piezas: number }[]>([]);
-  const [loadingReport, setLoadingReport] = useState(false);
-
-  const buildGroupedRows = (items: any[], type: 'STOCK' | 'RECIBIDOS' | 'ABIERTOS') => {
-    const map = new Map<string, { categoria: string; costales: number; piezas: number }>();
-
-    items.forEach((item) => {
-      const categoria = item.categoria || 'SIN CATEGORÍA';
-      const piezas =
-        type === 'ABIERTOS'
-          ? Number(item.piezas_contadas ?? item.piezas_asignadas ?? 0)
-          : Number(item.saldo_piezas ?? item.piezas_asignadas ?? 0);
-
-      if (!map.has(categoria)) {
-        map.set(categoria, { categoria, costales: 0, piezas: 0 });
-      }
-
-      const current = map.get(categoria)!;
-      current.costales += 1;
-      current.piezas += piezas;
-    });
-
-    return Array.from(map.values()).sort((a, b) => a.categoria.localeCompare(b.categoria));
-  };
-
-  const getTotals = (rows: { categoria: string; costales: number; piezas: number }[]) => {
-    return rows.reduce(
-      (acc, row) => {
-        acc.costales += row.costales;
-        acc.piezas += row.piezas;
-        return acc;
-      },
-      { costales: 0, piezas: 0 }
-    );
-  };
-
-  const filterByLocalDateRange = (items: any[], type: 'STOCK' | 'RECIBIDOS' | 'ABIERTOS') => {
-    if (type === 'STOCK') return items;
-
-    return items.filter((item) => {
-      const rawDate = type === 'ABIERTOS' ? item.fecha_apertura : item.fecha_recepcion;
-      if (!rawDate) return false;
-      const localDate = getLocalDateString(rawDate);
-      return localDate >= dateFrom && localDate <= dateTo;
-    });
-  };
-
-  const sortResults = (items: any[], type: 'STOCK' | 'RECIBIDOS' | 'ABIERTOS') => {
-    const copy = [...items];
-    return copy.sort((a, b) => {
-      const dateA = new Date(type === 'ABIERTOS' ? a.fecha_apertura : a.fecha_recepcion || 0).getTime();
-      const dateB = new Date(type === 'ABIERTOS' ? b.fecha_apertura : b.fecha_recepcion || 0).getTime();
-      return dateB - dateA;
-    });
-  };
 
   const generateReport = async () => {
-    if (dateFrom > dateTo) {
-      showNotify('error', 'La fecha inicial no puede ser mayor que la final.');
-      return;
-    }
-
-    setLoadingReport(true);
-    try {
-      const serviceDateFrom = reportType === 'STOCK' ? dateFrom : '2000-01-01';
-      const serviceDateTo = reportType === 'STOCK' ? dateTo : '2100-12-31';
-
-      const res: any = await gasService.getDetailedReport({
-        type: reportType,
-        dateFrom: serviceDateFrom,
-        dateTo: serviceDateTo,
-        tienda: 'ALL',
-        usuario: 'ALL'
-      });
-
-      if (res.ok) {
-        const rawData = Array.isArray(res.data) ? res.data : [];
-        const filteredData = filterByLocalDateRange(rawData, reportType);
-        const orderedData = sortResults(filteredData, reportType);
-        const grouped = buildGroupedRows(orderedData, reportType);
-
-        setResults(orderedData);
-        setGroupedRows(grouped);
-
-        if (grouped.length === 0) {
-          showNotify('warning', 'No hay datos para ese reporte.');
-        } else {
-          showNotify('success', 'Reporte generado.');
-        }
-      } else {
-        showNotify('error', res.error || 'No se pudo generar el reporte.');
-      }
-    } catch (error) {
-      console.error(error);
-      showNotify('error', 'No se pudo generar el reporte.');
-    } finally {
-      setLoadingReport(false);
-    }
+    const res: any = await gasService.getDetailedReport({ type: reportType, dateFrom, dateTo, tienda: 'ALL', usuario: 'ALL' });
+    if (res.ok) setResults(res.data);
   };
-
-  const downloadFile = (content: string, fileName: string, mimeType: string) => {
-    const blob = new Blob([content], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = fileName;
-    document.body.appendChild(anchor);
-    anchor.click();
-    document.body.removeChild(anchor);
-    URL.revokeObjectURL(url);
-  };
-
-  const exportToExcel = () => {
-    if (groupedRows.length === 0) {
-      showNotify('warning', 'Primero genera el reporte.');
-      return;
-    }
-
-    const totals = getTotals(groupedRows);
-    const lines = [
-      ['Tipo de reporte', reportType],
-      ['Fecha desde', dateFrom],
-      ['Fecha hasta', dateTo],
-      [''],
-      ['Categoría', 'Cantidad de Costales', 'Cantidad de Piezas'],
-      ...groupedRows.map((row) => [row.categoria, row.costales.toString(), row.piezas.toString()]),
-      ['TOTAL', totals.costales.toString(), totals.piezas.toString()]
-    ];
-
-    const csv = lines
-      .map((line) =>
-        line
-          .map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`)
-          .join(',')
-      )
-      .join('\\n');
-
-    downloadFile(csv, `reporte_${reportType.toLowerCase()}_${dateFrom}_a_${dateTo}.csv`, 'text/csv;charset=utf-8;');
-    showNotify('success', 'Archivo Excel descargado.');
-  };
-
-  const exportToPdf = () => {
-    if (groupedRows.length === 0) {
-      showNotify('warning', 'Primero genera el reporte.');
-      return;
-    }
-
-    const totals = getTotals(groupedRows);
-    const htmlRows = groupedRows
-      .map(
-        (row) => `
-          <tr>
-            <td style="padding:10px;border:1px solid #d1d5db;">${row.categoria}</td>
-            <td style="padding:10px;border:1px solid #d1d5db;text-align:right;">${row.costales}</td>
-            <td style="padding:10px;border:1px solid #d1d5db;text-align:right;">${row.piezas}</td>
-          </tr>
-        `
-      )
-      .join('\n');
-
-    const printWindow = window.open('', '_blank', 'width=900,height=700');
-    if (!printWindow) {
-      showNotify('error', 'El navegador bloqueó la ventana de impresión.');
-      return;
-    }
-
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>Reporte ${reportType}</title>
-        </head>
-        <body style="font-family:Arial,sans-serif;padding:24px;color:#111827;">
-          <h1 style="margin:0 0 8px 0;">Reporte ${reportType}</h1>
-          <p style="margin:0 0 20px 0;">Desde ${dateFrom} hasta ${dateTo}</p>
-          <table style="width:100%;border-collapse:collapse;">
-            <thead>
-              <tr style="background:#111827;color:white;">
-                <th style="padding:10px;border:1px solid #d1d5db;text-align:left;">Categoría</th>
-                <th style="padding:10px;border:1px solid #d1d5db;text-align:right;">Costales</th>
-                <th style="padding:10px;border:1px solid #d1d5db;text-align:right;">Piezas</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${htmlRows}
-              <tr style="font-weight:700;background:#f3f4f6;">
-                <td style="padding:10px;border:1px solid #d1d5db;">TOTAL</td>
-                <td style="padding:10px;border:1px solid #d1d5db;text-align:right;">${totals.costales}</td>
-                <td style="padding:10px;border:1px solid #d1d5db;text-align:right;">${totals.piezas}</td>
-              </tr>
-            </tbody>
-          </table>
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
-    printWindow.focus();
-    setTimeout(() => {
-      printWindow.print();
-    }, 300);
-  };
-
-  const handleExport = () => {
-    if (exportFormat === 'EXCEL') {
-      exportToExcel();
-      return;
-    }
-    exportToPdf();
-  };
-
-  const totals = getTotals(groupedRows);
 
   return (
     <div className="space-y-6 pb-20">
       <div className="bg-white p-8 rounded-[40px] shadow-sm space-y-6">
         <h2 className="text-2xl font-black text-center">Auditoría General</h2>
-
         <div className="grid grid-cols-2 gap-4">
-          <input
-            type="date"
-            value={dateFrom}
-            onChange={e => setDateFrom(e.target.value)}
-            className="p-3 bg-gray-50 rounded-2xl outline-none text-sm"
-          />
-          <input
-            type="date"
-            value={dateTo}
-            onChange={e => setDateTo(e.target.value)}
-            className="p-3 bg-gray-50 rounded-2xl outline-none text-sm"
-          />
+          <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="p-3 bg-gray-50 rounded-2xl outline-none text-sm" />
+          <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="p-3 bg-gray-50 rounded-2xl outline-none text-sm" />
         </div>
-
         <div className="flex gap-2 p-1 bg-gray-50 rounded-3xl">
           {['STOCK', 'RECIBIDOS', 'ABIERTOS'].map(t => (
-            <button
-              key={t}
-              onClick={() => setReportType(t as 'STOCK' | 'RECIBIDOS' | 'ABIERTOS')}
-              className={`flex-1 py-3 rounded-2xl text-[8px] font-black transition-all ${reportType === t ? 'bg-indigo-600 text-white' : 'text-gray-400'}`}
-            >
-              {t}
-            </button>
+            <button key={t} onClick={() => setReportType(t)} className={`flex-1 py-3 rounded-2xl text-[8px] font-black transition-all ${reportType === t ? 'bg-indigo-600 text-white' : 'text-gray-400'}`}>{t}</button>
           ))}
         </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <button
-            onClick={() => setExportFormat('EXCEL')}
-            className={`py-3 rounded-2xl text-[10px] font-black transition-all ${exportFormat === 'EXCEL' ? 'bg-emerald-600 text-white' : 'bg-gray-50 text-gray-500'}`}
-          >
-            EXCEL
-          </button>
-          <button
-            onClick={() => setExportFormat('PDF')}
-            className={`py-3 rounded-2xl text-[10px] font-black transition-all ${exportFormat === 'PDF' ? 'bg-red-600 text-white' : 'bg-gray-50 text-gray-500'}`}
-          >
-            PDF
-          </button>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <button
-            onClick={generateReport}
-            disabled={loadingReport}
-            className="w-full bg-gray-900 text-white font-black py-4 rounded-[28px] text-xs uppercase tracking-widest shadow-xl disabled:opacity-50"
-          >
-            {loadingReport ? 'GENERANDO...' : 'GENERAR CONSULTA'}
-          </button>
-          <button
-            onClick={handleExport}
-            className="w-full bg-indigo-600 text-white font-black py-4 rounded-[28px] text-xs uppercase tracking-widest shadow-xl"
-          >
-            EXPORTAR
-          </button>
-        </div>
+        <button onClick={generateReport} className="w-full bg-gray-900 text-white font-black py-4 rounded-[28px] text-xs uppercase tracking-widest shadow-xl">Generar Consulta</button>
       </div>
-
-      {groupedRows.length > 0 && (
-        <div className="bg-white p-6 rounded-[32px] shadow-sm space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-black text-gray-900">Resumen por Categoría</h3>
-            <span className="text-[10px] font-black text-indigo-500 uppercase tracking-widest">{reportType}</span>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-indigo-50 rounded-3xl p-5">
-              <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Costales</p>
-              <p className="text-3xl font-black text-indigo-700">{totals.costales}</p>
+      <div className="space-y-3">
+        {results.map((item, i) => (
+          <div key={i} className="bg-white p-5 rounded-[32px] shadow-sm flex justify-between items-center">
+            <div>
+              <p className="font-black text-gray-900 text-sm tracking-tight">{item.codigo_barras || 'ID:' + item.id_apertura?.substring(0, 8)}</p>
+              <p className="text-[9px] font-black text-gray-400 uppercase">{item.categoria}</p>
+              <p className="text-[8px] font-bold text-indigo-400 mt-0.5">{new Date(item.fecha_recepcion || item.fecha_apertura).toLocaleDateString()}</p>
             </div>
-            <div className="bg-emerald-50 rounded-3xl p-5">
-              <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Piezas</p>
-              <p className="text-3xl font-black text-emerald-700">{totals.piezas}</p>
-            </div>
+            {item.diferencia !== undefined && (
+              <div className={`text-xs font-black p-3 rounded-2xl ${item.diferencia >= 0 ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
+                {item.diferencia > 0 ? '+' : ''}{item.diferencia}
+              </div>
+            )}
           </div>
-
-          <div className="space-y-3">
-            {groupedRows.map((row) => (
-              <div key={row.categoria} className="bg-gray-50 p-5 rounded-[28px] flex items-center justify-between">
-                <div>
-                  <p className="font-black text-gray-900 text-sm">{row.categoria}</p>
-                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">
-                    {row.costales} costales
-                  </p>
-                </div>
-                <div className="text-right">
-                  <p className="text-2xl font-black text-indigo-600">{row.piezas}</p>
-                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Piezas</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {results.length > 0 && (
-        <div className="space-y-3">
-          <h3 className="text-lg font-black text-gray-900 px-1">Detalle</h3>
-          {results.map((item, i) => (
-            <div key={`${item.codigo_barras || item.id_apertura || i}-${i}`} className="bg-white p-5 rounded-[32px] shadow-sm flex justify-between items-center">
-              <div>
-                <p className="font-black text-gray-900 text-sm tracking-tight">
-                  {item.codigo_barras || 'ID:' + String(item.id_apertura || '').substring(0, 8)}
-                </p>
-                <p className="text-[9px] font-black text-gray-400 uppercase">{item.categoria}</p>
-                <p className="text-[8px] font-bold text-indigo-400 mt-0.5">
-                  {new Date(item.fecha_recepcion || item.fecha_apertura).toLocaleDateString()}
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="text-sm font-black text-gray-900">
-                  {reportType === 'ABIERTOS'
-                    ? Number(item.piezas_contadas ?? item.piezas_asignadas ?? 0)
-                    : Number(item.saldo_piezas ?? item.piezas_asignadas ?? 0)}
-                </p>
-                <p className="text-[8px] font-black text-gray-400 uppercase">Piezas</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+        ))}
+      </div>
     </div>
   );
 };
-
 
 export default App;
