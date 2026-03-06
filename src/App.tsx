@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { User, Role, Costal, Apertura, CostalStatus, OfflineAction, Store } from './types';
 import { CATEGORIES, PIECES_MAP, INITIAL_STORES } from './constants';
@@ -118,14 +119,20 @@ const AperturaScreen = ({ user, metrics, isOnline, showNotify, enqueueAction, lo
         if (res.ok) { 
           showNotify('success', `Costal ${costalInfo.codigo_barras} abierto y descontado.`); 
           await loadMetrics(); 
-          setCurrentScreen('EXISTENCIAS'); 
+          setCode('');
+          setCount('');
+          setCostalInfo(null);
+          setSelectedAperturaCategory('');
         } else {
           showNotify('error', res.error || 'Error al procesar.');
         }
       } else { 
         enqueueAction({ type: 'OPEN_COSTAL', payload: apertura }); 
         showNotify('success', 'Guardado localmente (Offline).');
-        setCurrentScreen('EXISTENCIAS'); 
+        setCode('');
+        setCount('');
+        setCostalInfo(null);
+        setSelectedAperturaCategory('');
       }
     } catch (err) {
       console.error(err);
@@ -458,18 +465,67 @@ const RecepcionView = ({ user, isOnline, showNotify, enqueueAction, loadMetrics,
   );
 };
 
+
 const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateStore, loading }: any) => {
   const [newStoreName, setNewStoreName] = useState('');
   const [newStoreAddr, setNewStoreAddr] = useState('');
   const [users, setUsers] = useState<User[]>([]);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [editingStore, setEditingStore] = useState<Store | null>(null);
+  const [userCategoryPerf, setUserCategoryPerf] = useState<{ categoria: string; avgDiff: number; count: number }[]>([]);
 
   useEffect(() => {
     gasService.listUsuarios().then((res: any) => {
       if (res.ok) setUsers(res.data);
     });
   }, []);
+
+  useEffect(() => {
+    const loadUserCategoryPerf = async () => {
+      if (!user?.email) return;
+      try {
+        const res: any = await gasService.getDetailedReport({
+          type: 'ABIERTOS',
+          dateFrom: '2000-01-01',
+          dateTo: '2100-12-31',
+          tienda: 'ALL',
+          usuario: user.email
+        });
+
+        if (!res.ok || !Array.isArray(res.data)) {
+          setUserCategoryPerf([]);
+          return;
+        }
+
+        const grouped = new Map<string, { categoria: string; totalDiff: number; count: number }>();
+
+        res.data.forEach((item: Apertura) => {
+          const categoria = item.categoria || 'SIN CATEGORÍA';
+          if (!grouped.has(categoria)) {
+            grouped.set(categoria, { categoria, totalDiff: 0, count: 0 });
+          }
+          const current = grouped.get(categoria)!;
+          current.totalDiff += Number(item.diferencia ?? 0);
+          current.count += 1;
+        });
+
+        const rows = Array.from(grouped.values())
+          .map((row) => ({
+            categoria: row.categoria,
+            avgDiff: row.count > 0 ? row.totalDiff / row.count : 0,
+            count: row.count
+          }))
+          .sort((a, b) => a.categoria.localeCompare(b.categoria));
+
+        setUserCategoryPerf(rows);
+      } catch (error) {
+        console.error(error);
+        setUserCategoryPerf([]);
+      }
+    };
+
+    loadUserCategoryPerf();
+  }, [user?.email]);
 
   const handleUpdateUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -483,13 +539,45 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
   };
 
   const userPerf = metrics?.userStats.find((u: any) => u.email === user?.email);
-  
+
   return (
     <div className="space-y-8 pb-12">
       <div className="bg-indigo-600 p-8 rounded-[40px] text-white shadow-2xl">
         <h2 className="text-[10px] font-black opacity-60 uppercase tracking-widest mb-1">Tu Rendimiento</h2>
         <p className="text-4xl font-black">{userPerf?.avgDiff.toFixed(1) || '0.0'}</p>
-        <p className="text-[10px] font-bold opacity-80 uppercase mt-1">DIFERENCIA PROMEDIO (Pzs)</p>
+        <p className="text-[10px] font-bold opacity-80 uppercase mt-1">DIFERENCIA PROMEDIO GENERAL (Pzs)</p>
+      </div>
+
+      <div className="bg-white p-6 rounded-[32px] shadow-sm space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-black text-gray-900">Promedio por Categoría</h3>
+          <span className="text-[10px] font-black text-indigo-500 uppercase tracking-widest">
+            {userCategoryPerf.length} categorías
+          </span>
+        </div>
+
+        {userCategoryPerf.length === 0 ? (
+          <div className="text-center p-10 text-gray-300 font-black border border-dashed rounded-[28px]">
+            Sin aperturas registradas
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {userCategoryPerf.map((row) => (
+              <div key={row.categoria} className="bg-gray-50 p-5 rounded-[28px] flex items-center justify-between">
+                <div>
+                  <p className="font-black text-gray-900 text-sm">{row.categoria}</p>
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">
+                    {row.count} aperturas
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-2xl font-black text-indigo-600">{row.avgDiff.toFixed(1)}</p>
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Promedio</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* --- User Management (Admin Only) --- */}
@@ -572,7 +660,6 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
         </div>
       </div>
 
-      {/* --- User Edit Modal (Mock) --- */}
       {editingUser && (
         <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-4">
            <form onSubmit={handleUpdateUser} className="bg-white w-full max-w-md rounded-[40px] p-8 space-y-6 animate-in slide-in-from-bottom-20 shadow-2xl">
@@ -580,7 +667,7 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
                 <h3 className="text-xl font-black">Editar Usuario</h3>
                 <button type="button" onClick={() => setEditingUser(null)} className="text-gray-400 font-bold">Cerrar</button>
               </div>
-              
+
               <div className="space-y-4">
                 <label className="block space-y-1">
                   <span className="text-[10px] font-black text-gray-400 uppercase">Nombre Completo</span>
@@ -603,13 +690,12 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
                   <input type="password" value={editingUser.password || ''} onChange={e => setEditingUser({...editingUser, password: e.target.value})} className="w-full p-4 bg-gray-50 rounded-2xl font-bold" placeholder="Nueva contraseña..." />
                 </label>
               </div>
-              
+
               <button type="submit" className="w-full bg-indigo-600 text-white font-black py-4 rounded-3xl shadow-xl shadow-indigo-100">GUARDAR CAMBIOS</button>
            </form>
         </div>
       )}
 
-      {/* --- Store Edit Modal --- */}
       {editingStore && (
         <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-4">
            <div className="bg-white w-full max-w-md rounded-[40px] p-8 space-y-6 shadow-2xl">
@@ -635,8 +721,18 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
   );
 };
 
+
+
 const ReportesView = ({ stores, metrics, showNotify }: any) => {
-  const today = new Date().toISOString().split('T')[0];
+  const getLocalDateString = (value?: string | Date) => {
+    const date = value ? new Date(value) : new Date();
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const today = getLocalDateString();
   const [dateFrom, setDateFrom] = useState(today);
   const [dateTo, setDateTo] = useState(today);
   const [reportType, setReportType] = useState<'STOCK' | 'RECIBIDOS' | 'ABIERTOS'>('RECIBIDOS');
@@ -678,21 +774,52 @@ const ReportesView = ({ stores, metrics, showNotify }: any) => {
     );
   };
 
+  const filterByLocalDateRange = (items: any[], type: 'STOCK' | 'RECIBIDOS' | 'ABIERTOS') => {
+    if (type === 'STOCK') return items;
+
+    return items.filter((item) => {
+      const rawDate = type === 'ABIERTOS' ? item.fecha_apertura : item.fecha_recepcion;
+      if (!rawDate) return false;
+      const localDate = getLocalDateString(rawDate);
+      return localDate >= dateFrom && localDate <= dateTo;
+    });
+  };
+
+  const sortResults = (items: any[], type: 'STOCK' | 'RECIBIDOS' | 'ABIERTOS') => {
+    const copy = [...items];
+    return copy.sort((a, b) => {
+      const dateA = new Date(type === 'ABIERTOS' ? a.fecha_apertura : a.fecha_recepcion || 0).getTime();
+      const dateB = new Date(type === 'ABIERTOS' ? b.fecha_apertura : b.fecha_recepcion || 0).getTime();
+      return dateB - dateA;
+    });
+  };
+
   const generateReport = async () => {
+    if (dateFrom > dateTo) {
+      showNotify('error', 'La fecha inicial no puede ser mayor que la final.');
+      return;
+    }
+
     setLoadingReport(true);
     try {
+      const serviceDateFrom = reportType === 'STOCK' ? dateFrom : '2000-01-01';
+      const serviceDateTo = reportType === 'STOCK' ? dateTo : '2100-12-31';
+
       const res: any = await gasService.getDetailedReport({
         type: reportType,
-        dateFrom,
-        dateTo,
+        dateFrom: serviceDateFrom,
+        dateTo: serviceDateTo,
         tienda: 'ALL',
         usuario: 'ALL'
       });
 
       if (res.ok) {
-        const data = Array.isArray(res.data) ? res.data : [];
-        const grouped = buildGroupedRows(data, reportType);
-        setResults(data);
+        const rawData = Array.isArray(res.data) ? res.data : [];
+        const filteredData = filterByLocalDateRange(rawData, reportType);
+        const orderedData = sortResults(filteredData, reportType);
+        const grouped = buildGroupedRows(orderedData, reportType);
+
+        setResults(orderedData);
         setGroupedRows(grouped);
 
         if (grouped.length === 0) {
@@ -746,7 +873,7 @@ const ReportesView = ({ stores, metrics, showNotify }: any) => {
           .map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`)
           .join(',')
       )
-      .join('\n');
+      .join('\\n');
 
     downloadFile(csv, `reporte_${reportType.toLowerCase()}_${dateFrom}_a_${dateTo}.csv`, 'text/csv;charset=utf-8;');
     showNotify('success', 'Archivo Excel descargado.');
@@ -769,7 +896,7 @@ const ReportesView = ({ stores, metrics, showNotify }: any) => {
           </tr>
         `
       )
-      .join('');
+      .join('\n');
 
     const printWindow = window.open('', '_blank', 'width=900,height=700');
     if (!printWindow) {
@@ -927,10 +1054,10 @@ const ReportesView = ({ stores, metrics, showNotify }: any) => {
         <div className="space-y-3">
           <h3 className="text-lg font-black text-gray-900 px-1">Detalle</h3>
           {results.map((item, i) => (
-            <div key={i} className="bg-white p-5 rounded-[32px] shadow-sm flex justify-between items-center">
+            <div key={`${item.codigo_barras || item.id_apertura || i}-${i}`} className="bg-white p-5 rounded-[32px] shadow-sm flex justify-between items-center">
               <div>
                 <p className="font-black text-gray-900 text-sm tracking-tight">
-                  {item.codigo_barras || 'ID:' + item.id_apertura.substring(0, 8)}
+                  {item.codigo_barras || 'ID:' + String(item.id_apertura || '').substring(0, 8)}
                 </p>
                 <p className="text-[9px] font-black text-gray-400 uppercase">{item.categoria}</p>
                 <p className="text-[8px] font-bold text-indigo-400 mt-0.5">
