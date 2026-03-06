@@ -88,6 +88,7 @@ class GASService {
 
           case 'updateUsuario': {
             const targetEmail = String(data.email || '').toLowerCase();
+            const actorEmail = String(data.actorEmail || '').toLowerCase();
             const target = users.find(u => u.email.toLowerCase() === targetEmail);
             if (!target) {
               resolve({ ok: false, error: 'Usuario no encontrado.' });
@@ -95,6 +96,8 @@ class GASService {
             }
 
             const nextRole = data.rol as Role | undefined;
+            const actorIsRootAdmin = actorEmail === ROOT_ADMIN_EMAIL;
+
             if (targetEmail === ROOT_ADMIN_EMAIL && nextRole && nextRole !== Role.ADMIN) {
               resolve({ ok: false, error: 'El administrador principal no puede cambiar de rol.' });
               break;
@@ -105,12 +108,19 @@ class GASService {
               break;
             }
 
+            if (nextRole === Role.ADMIN_2 && !actorIsRootAdmin) {
+              resolve({ ok: false, error: 'Solo el administrador principal puede asignar ADMIN_2.' });
+              break;
+            }
+
             const sanitized = {
               ...target,
               ...data,
               email: target.email,
               rol: targetEmail === ROOT_ADMIN_EMAIL ? Role.ADMIN : (nextRole || target.rol),
             };
+
+            delete sanitized.actorEmail;
 
             const updatedUsers = users.map(u => u.email.toLowerCase() === targetEmail ? sanitized : u);
             this.saveMockData(MOCK_DB_USERS, updatedUsers);
@@ -233,7 +243,7 @@ class GASService {
 
   async auth(email: string) { return this.request('authUsuario', { email }); }
   async register(userData: User) { return this.request('registrarUsuario', userData); }
-  async updateUsuario(userData: Partial<User> & { email: string }) { return this.request('updateUsuario', userData); }
+  async updateUsuario(userData: (Partial<User> & { email: string }) & { actorEmail?: string }) { return this.request('updateUsuario', userData); }
   async listUsuarios() { return this.request('listUsuarios'); }
   async checkDuplicate(codigo: string) { return this.request('checkDuplicado', { codigo }); }
   async addCostal(costal: Costal) { return this.request('addCostal', costal); }
