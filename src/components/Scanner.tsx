@@ -8,6 +8,7 @@ interface ScannerProps {
 
 const REQUIRED_PREFIX = "EMP02";
 const DUPLICATE_BLOCK_MS = 2000;
+const SCAN_REGION_ID = "scan-region";
 
 const Scanner: React.FC<ScannerProps> = ({
   onScan,
@@ -15,31 +16,24 @@ const Scanner: React.FC<ScannerProps> = ({
 }) => {
   const [manualCode, setManualCode] = useState("");
   const [isCameraActive, setIsCameraActive] = useState(false);
-  const [isProcessingImage, setIsProcessingImage] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
-  const imageInputRef = useRef<HTMLInputElement>(null);
   const qrRef = useRef<Html5Qrcode | null>(null);
-
   const lastAcceptedCodeRef = useRef<string>("");
   const lastAcceptedTimeRef = useRef<number>(0);
 
-  const SCAN_REGION_ID = "scan-region";
-
   const normalizeCode = (raw: string): string => {
     let code = raw.trim().toUpperCase();
-
-    // Eliminar espacios y símbolos raros
     code = code.replace(/[^A-Z0-9]/g, "");
 
     // Correcciones comunes del prefijo
     if (code.startsWith("EBP02")) {
       code = REQUIRED_PREFIX + code.slice(5);
     } else if (code.startsWith("EMPO2")) {
-      code = "EMP02" + code.slice(5);
+      code = REQUIRED_PREFIX + code.slice(5);
     } else if (code.startsWith("EMP0Z")) {
-      code = "EMP02" + code.slice(5);
+      code = REQUIRED_PREFIX + code.slice(5);
     } else if (code.startsWith("EP02")) {
       code = REQUIRED_PREFIX + code.slice(4);
     } else if (/^E.P02/.test(code)) {
@@ -49,7 +43,7 @@ const Scanner: React.FC<ScannerProps> = ({
     return code;
   };
 
-  const isProbablyValidBusinessCode = (code: string): boolean => {
+  const isValidBusinessCode = (code: string): boolean => {
     if (!code.startsWith(REQUIRED_PREFIX)) return false;
     if (code.length <= REQUIRED_PREFIX.length) return false;
     return /^[A-Z0-9]+$/.test(code);
@@ -66,13 +60,8 @@ const Scanner: React.FC<ScannerProps> = ({
   const acceptCode = (raw: string) => {
     const normalized = normalizeCode(raw);
 
-    if (!isProbablyValidBusinessCode(normalized)) {
-      return;
-    }
-
-    if (shouldBlockDuplicate(normalized)) {
-      return;
-    }
+    if (!isValidBusinessCode(normalized)) return;
+    if (shouldBlockDuplicate(normalized)) return;
 
     lastAcceptedCodeRef.current = normalized;
     lastAcceptedTimeRef.current = Date.now();
@@ -86,11 +75,11 @@ const Scanner: React.FC<ScannerProps> = ({
 
   const handleManualSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const normalized = normalizeCode(manualCode);
 
+    const normalized = normalizeCode(manualCode);
     if (!normalized) return;
 
-    if (!isProbablyValidBusinessCode(normalized)) {
+    if (!isValidBusinessCode(normalized)) {
       setError("Código inválido.");
       return;
     }
@@ -101,11 +90,77 @@ const Scanner: React.FC<ScannerProps> = ({
     inputRef.current?.focus();
   };
 
-  const ensureScannerInstance = async () => {
-    if (!qrRef.current) {
-      qrRef.current = new Html5Qrcode(SCAN_REGION_ID);
+  const pickBestRearCameraId = async (): Promise<string | null> => {
+    try {
+      const cameras = await Html5Qrcode.getCameras();
+      if (!cameras || cameras.length === 0) return null;
+
+      const ranked = [...cameras].sort((a, b) => {
+        const score = (label: string) => {
+          const l = label.toLowerCase();
+          let s = 0;
+          if (l.includes("back")) s += 100;
+          if (l.includes("rear")) s += 100;
+          if (l.includes("environment")) s += 100;
+          if (l.includes("trase")) s += 100;
+          if (l.includes("wide")) s += 20;
+          if (l.includes("0.6")) s += 10;
+          if (l.includes("front")) s -= 200;
+          if (l.includes("user")) s -= 200;
+          return s;
+        };
+
+        return score(b.label) - score(a.label);
+      });
+
+      return ranked[0]?.id ?? null;
+    } catch (err) {
+      console.error(err);
+      return null;
     }
-    return qrRef.current;
+  };
+
+  const applyAndroidFriendlyVideoTweaks = async () => {
+    if (!qrRef.current) return;
+
+    try {
+      const scanner: any = qrRef.current;
+
+      const capabilities = scanner.getRunningTrackCapabilities?.();
+      const constraints: any = {
+        advanced: []
+      };
+
+      if (capabilities?.focusMode) {
+        const focusModes = Array.isArray(capabilities.focusMode)
+          ? capabilities.focusMode
+          : [capabilities.focusMode];
+
+        if (focusModes.includes("continuous")) {
+          constraints.advanced.push({ focusMode: "continuous" });
+        }
+      }
+
+      if (capabilities?.zoom) {
+        const minZoom = capabilities.zoom.min ?? 1;
+        const maxZoom = capabilities.zoom.max ?? 1;
+        const idealZoom = Math.min(Math.max(2, minZoom), maxZoom);
+
+        if (idealZoom >= minZoom && idealZoom <= maxZoom) {
+          constraints.advanced.push({ zoom: idealZoom });
+        }
+      }
+
+      if (capabilities?.torch) {
+        // no la encendemos sola, pero dejamos esto aquí por si luego quieres botón
+      }
+
+      if (constraints.advanced.length > 0) {
+        await scanner.applyVideoConstraints?.(constraints);
+      }
+    } catch (err) {
+      console.error("No se pudieron aplicar ajustes avanzados de video:", err);
+    }
   };
 
   const startCamera = async () => {
@@ -113,32 +168,52 @@ const Scanner: React.FC<ScannerProps> = ({
 
     try {
       setIsCameraActive(true);
-      await new Promise((r) => setTimeout(r, 80));
+      await new Promise((r) => setTimeout(r, 60));
 
-      const scanner = await ensureScannerInstance();
+      if (!qrRef.current) {
+        qrRef.current = new Html5Qrcode(SCAN_REGION_ID);
+      }
 
-      await scanner.start(
-        { facingMode: "environment" },
+      const rearCameraId = await pickBestRearCameraId();
+
+      const cameraConfig = rearCameraId
+        ? rearCameraId
+        : { facingMode: "environment" };
+
+      await qrRef.current.start(
+        cameraConfig as any,
         {
-          fps: 10,
-          // Caja horizontal para favorecer códigos 1D como CODE_128
-          qrbox: { width: 320, height: 120 }
-        },
+          fps: 8,
+          disableFlip: true,
+          aspectRatio: 1.7777778,
+          // MUY IMPORTANTE:
+          // no usamos qrbox cuadrado porque perjudica CODE_128
+          videoConstraints: {
+            facingMode: "environment",
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
+          } as MediaTrackConstraints
+        } as any,
         (decodedText) => {
           acceptCode(decodedText);
         },
         () => {
-          // ignorar errores de frame
+          // ignorar errores por frame
         }
       );
+
+      await applyAndroidFriendlyVideoTweaks();
     } catch (err) {
       console.error(err);
-      setError("No se pudo iniciar la cámara. Verifica permisos en Safari/Chrome.");
+      setError("No se pudo iniciar la cámara. Verifica permisos en Chrome/Safari.");
       setIsCameraActive(false);
 
       try {
         if (qrRef.current) {
-          await qrRef.current.stop();
+          const scanner: any = qrRef.current;
+          if (scanner.isScanning) {
+            await qrRef.current.stop();
+          }
           await qrRef.current.clear();
         }
       } catch (_) {}
@@ -147,44 +222,19 @@ const Scanner: React.FC<ScannerProps> = ({
 
   const stopCamera = async () => {
     setError(null);
+
     try {
-      if (qrRef.current && (qrRef.current as any).isScanning) {
-        await qrRef.current.stop();
-      }
       if (qrRef.current) {
+        const scanner: any = qrRef.current;
+        if (scanner.isScanning) {
+          await qrRef.current.stop();
+        }
         await qrRef.current.clear();
       }
     } catch (err) {
       console.error(err);
     } finally {
       setIsCameraActive(false);
-    }
-  };
-
-  const handlePickImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setError(null);
-    setIsProcessingImage(true);
-
-    try {
-      if (qrRef.current && (qrRef.current as any).isScanning) {
-        await stopCamera();
-      }
-
-      const scanner = await ensureScannerInstance();
-
-      const result = await (scanner as any).scanFile(file, false);
-      acceptCode(result);
-    } catch (err) {
-      console.error(err);
-      setError("No se pudo leer el código desde la foto.");
-    } finally {
-      setIsProcessingImage(false);
-      if (imageInputRef.current) {
-        imageInputRef.current.value = "";
-      }
     }
   };
 
@@ -216,35 +266,14 @@ const Scanner: React.FC<ScannerProps> = ({
           </button>
         </form>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <button
-            onClick={() => (isCameraActive ? stopCamera() : startCamera())}
-            disabled={isProcessingImage}
-            className={`flex items-center justify-center gap-2 p-3 rounded-lg font-semibold transition-colors disabled:opacity-50 ${
-              isCameraActive ? "bg-red-100 text-red-600" : "bg-indigo-100 text-indigo-700"
-            }`}
-          >
-            {isCameraActive ? "Cerrar Cámara" : "Usar Cámara"}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => imageInputRef.current?.click()}
-            disabled={isProcessingImage}
-            className="flex items-center justify-center gap-2 p-3 rounded-lg font-semibold bg-emerald-100 text-emerald-700 transition-colors disabled:opacity-50"
-          >
-            {isProcessingImage ? "Procesando foto..." : "Tomar / Subir Foto"}
-          </button>
-        </div>
-
-        <input
-          ref={imageInputRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          onChange={handlePickImage}
-          className="hidden"
-        />
+        <button
+          onClick={() => (isCameraActive ? stopCamera() : startCamera())}
+          className={`flex items-center justify-center gap-2 p-3 rounded-lg font-semibold transition-colors ${
+            isCameraActive ? "bg-red-100 text-red-600" : "bg-indigo-100 text-indigo-700"
+          }`}
+        >
+          {isCameraActive ? "Cerrar Cámara" : "Usar Cámara"}
+        </button>
       </div>
 
       <div
@@ -253,10 +282,6 @@ const Scanner: React.FC<ScannerProps> = ({
         }`}
       >
         <div id={SCAN_REGION_ID} className="w-full" />
-      </div>
-
-      <div className="text-xs text-gray-500">
-        En Android, si el video no enfoca bien, usa <strong>Tomar / Subir Foto</strong>.
       </div>
 
       {error && <p className="text-xs text-red-500 italic">{error}</p>}
