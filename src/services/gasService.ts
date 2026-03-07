@@ -1,13 +1,21 @@
 import { Costal, Apertura, User, Role, CostalStatus, Store } from '../types';
 
-const GAS_URL = 'https://script.google.com/macros/s/REPLACE_WITH_YOUR_DEPLOY_ID/exec';
+const GAS_URL =
+  import.meta.env.VITE_GAS_URL ||
+  'https://script.google.com/macros/s/REPLACE_WITH_YOUR_DEPLOY_ID/exec';
+
 const MOCK_DB_COSTALES = 'cc_mock_db_costales';
 const MOCK_DB_STORES = 'cc_mock_db_stores';
 const MOCK_DB_APERTURAS = 'cc_mock_db_aperturas';
 const MOCK_DB_USERS = 'cc_mock_db_users';
 const MOCK_DB_AUTH = 'cc_mock_db_auth';
-const ROOT_ADMIN_EMAIL = 'curiosidades2526@gmail.com';
-const ROOT_ADMIN_INITIAL_PASSWORD = 'Admin2026!';
+
+const ROOT_ADMIN_EMAIL = (
+  import.meta.env.VITE_ROOT_ADMIN_EMAIL || 'curiosidades2526@gmail.com'
+).toLowerCase();
+
+const ROOT_ADMIN_INITIAL_PASSWORD =
+  import.meta.env.VITE_ROOT_ADMIN_INITIAL_PASSWORD || 'Admin2026!';
 
 type AuthRecord = {
   email: string;
@@ -29,7 +37,8 @@ class GASService {
         body: JSON.stringify({ action, ...data }),
       });
 
-      return await response.json();
+      const json = await response.json();
+      return json;
     } catch (error) {
       console.error('GAS request failed:', error);
       return { ok: false, error: 'Error de conexión con el servidor' };
@@ -57,10 +66,16 @@ class GASService {
     this.saveMockData<AuthRecord>(MOCK_DB_AUTH, records);
   }
 
-  private upsertAuthRecord(email: string, password: string, mustChangePassword: boolean) {
+  private upsertAuthRecord(
+    email: string,
+    password: string,
+    mustChangePassword: boolean
+  ) {
     const records = this.getAuthRecords();
     const cleanEmail = email.toLowerCase();
-    const index = records.findIndex((r) => r.email.toLowerCase() === cleanEmail);
+    const index = records.findIndex(
+      (r) => r.email.toLowerCase() === cleanEmail
+    );
 
     if (index >= 0) {
       records[index] = { email: cleanEmail, password, mustChangePassword };
@@ -73,12 +88,16 @@ class GASService {
 
   private getAuthRecord(email: string) {
     const records = this.getAuthRecords();
-    return records.find((r) => r.email.toLowerCase() === email.toLowerCase()) || null;
+    return (
+      records.find((r) => r.email.toLowerCase() === email.toLowerCase()) || null
+    );
   }
 
   private ensureRootAdmin(users: User[]) {
     let normalizedUsers = [...users];
-    const existing = normalizedUsers.find((u) => u.email.toLowerCase() === ROOT_ADMIN_EMAIL);
+    const existing = normalizedUsers.find(
+      (u) => u.email.toLowerCase() === ROOT_ADMIN_EMAIL
+    );
 
     if (existing) {
       normalizedUsers = normalizedUsers.map((u) =>
@@ -100,10 +119,35 @@ class GASService {
 
     const existingAuth = this.getAuthRecord(ROOT_ADMIN_EMAIL);
     if (!existingAuth) {
-      this.upsertAuthRecord(ROOT_ADMIN_EMAIL, ROOT_ADMIN_INITIAL_PASSWORD, true);
+      this.upsertAuthRecord(
+        ROOT_ADMIN_EMAIL,
+        ROOT_ADMIN_INITIAL_PASSWORD,
+        true
+      );
     }
 
     return normalizedUsers;
+  }
+
+  private async sendTempPasswordEmail(payload: {
+    to: string;
+    nombre: string;
+    tempPassword: string;
+    tipo: 'CREACION' | 'RECUPERACION';
+  }) {
+    try {
+      const response = await fetch('/api/send-temp-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const json = await response.json();
+      return json;
+    } catch (error) {
+      console.error('sendTempPasswordEmail failed:', error);
+      return { ok: false, error: 'No se pudo contactar el servicio de correo.' };
+    }
   }
 
   private mockResponse(action: string, data: any) {
@@ -127,7 +171,10 @@ class GASService {
             }
 
             if (!authRecord) {
-              resolve({ ok: false, error: 'El usuario no tiene contraseña asignada.' });
+              resolve({
+                ok: false,
+                error: 'El usuario no tiene contraseña asignada.',
+              });
               break;
             }
 
@@ -149,7 +196,8 @@ class GASService {
           case 'registrarUsuario': {
             resolve({
               ok: false,
-              error: 'El registro libre está deshabilitado. Solo el administrador puede crear usuarios.',
+              error:
+                'El registro libre está deshabilitado. Solo el administrador puede crear usuarios.',
             });
             break;
           }
@@ -175,7 +223,10 @@ class GASService {
             }
 
             if (email === ROOT_ADMIN_EMAIL && actorEmail !== ROOT_ADMIN_EMAIL) {
-              resolve({ ok: false, error: 'Ese correo está reservado para el administrador principal.' });
+              resolve({
+                ok: false,
+                error: 'Ese correo está reservado para el administrador principal.',
+              });
               break;
             }
 
@@ -185,12 +236,18 @@ class GASService {
             }
 
             if (rol === Role.ADMIN) {
-              resolve({ ok: false, error: 'No se permite crear más usuarios ADMIN.' });
+              resolve({
+                ok: false,
+                error: 'No se permite crear más usuarios ADMIN.',
+              });
               break;
             }
 
             if (rol === Role.ADMIN_2 && actorEmail !== ROOT_ADMIN_EMAIL) {
-              resolve({ ok: false, error: 'Solo el administrador principal puede asignar ADMIN_2.' });
+              resolve({
+                ok: false,
+                error: 'Solo el administrador principal puede asignar ADMIN_2.',
+              });
               break;
             }
 
@@ -198,7 +255,10 @@ class GASService {
               actor.rol === Role.ADMIN_2 &&
               (rol === Role.ADMIN || rol === Role.ADMIN_2)
             ) {
-              resolve({ ok: false, error: 'ADMIN_2 no puede crear administradores.' });
+              resolve({
+                ok: false,
+                error: 'ADMIN_2 no puede crear administradores.',
+              });
               break;
             }
 
@@ -240,6 +300,7 @@ class GASService {
             resolve({
               ok: true,
               data: {
+                nombre: foundUser.nombre,
                 tempPassword,
                 emailSent: false,
               },
@@ -252,7 +313,10 @@ class GASService {
             const newPassword = String(data.newPassword || '');
 
             if (!newPassword || newPassword.length < 4) {
-              resolve({ ok: false, error: 'La nueva contraseña no es válida.' });
+              resolve({
+                ok: false,
+                error: 'La nueva contraseña no es válida.',
+              });
               break;
             }
 
@@ -282,18 +346,31 @@ class GASService {
             const nextRole = data.rol as Role | undefined;
             const actorIsRootAdmin = actorEmail === ROOT_ADMIN_EMAIL;
 
-            if (targetEmail === ROOT_ADMIN_EMAIL && nextRole && nextRole !== Role.ADMIN) {
-              resolve({ ok: false, error: 'El administrador principal no puede cambiar de rol.' });
+            if (
+              targetEmail === ROOT_ADMIN_EMAIL &&
+              nextRole &&
+              nextRole !== Role.ADMIN
+            ) {
+              resolve({
+                ok: false,
+                error: 'El administrador principal no puede cambiar de rol.',
+              });
               break;
             }
 
             if (nextRole === Role.ADMIN) {
-              resolve({ ok: false, error: 'No se permite crear más usuarios ADMIN.' });
+              resolve({
+                ok: false,
+                error: 'No se permite crear más usuarios ADMIN.',
+              });
               break;
             }
 
             if (nextRole === Role.ADMIN_2 && !actorIsRootAdmin) {
-              resolve({ ok: false, error: 'Solo el administrador principal puede asignar ADMIN_2.' });
+              resolve({
+                ok: false,
+                error: 'Solo el administrador principal puede asignar ADMIN_2.',
+              });
               break;
             }
 
@@ -301,10 +378,7 @@ class GASService {
               ...target,
               ...data,
               email: target.email,
-              rol: targetEmail === ROOT_ADMIN_EMAIL ? Role.ADMIN : (nextRole || target.rol),
             };
-
-            delete sanitized.actorEmail;
 
             const updatedUsers = users.map((u) =>
               u.email.toLowerCase() === targetEmail ? sanitized : u
@@ -315,9 +389,10 @@ class GASService {
             break;
           }
 
-          case 'listUsuarios':
+          case 'listUsuarios': {
             resolve({ ok: true, data: users });
             break;
+          }
 
           case 'checkDuplicado': {
             const exists = costales.some((c) => c.codigo_barras === data.codigo);
@@ -335,12 +410,21 @@ class GASService {
             break;
 
           case 'abrirCostal': {
-            const costalToOpen = costales.find((c) => c.codigo_barras === data.codigo_barras);
-            if (!costalToOpen) resolve({ ok: false, error: 'El costal no existe' });
-            else if (costalToOpen.estado === CostalStatus.ABIERTO) resolve({ ok: false, error: 'El costal ya fue abierto previamente' });
-            else {
+            const costalToOpen = costales.find(
+              (c) => c.codigo_barras === data.codigo_barras
+            );
+            if (!costalToOpen) {
+              resolve({ ok: false, error: 'El costal no existe' });
+            } else if (costalToOpen.estado === CostalStatus.ABIERTO) {
+              resolve({
+                ok: false,
+                error: 'El costal ya fue abierto previamente',
+              });
+            } else {
               const updatedCostales = costales.map((c) =>
-                c.codigo_barras === data.codigo_barras ? { ...c, estado: CostalStatus.ABIERTO } : c
+                c.codigo_barras === data.codigo_barras
+                  ? { ...c, estado: CostalStatus.ABIERTO }
+                  : c
               );
               this.saveMockData(MOCK_DB_COSTALES, updatedCostales);
               this.saveMockData(MOCK_DB_APERTURAS, [...aperturas, data]);
@@ -351,7 +435,13 @@ class GASService {
 
           case 'trasladarCostal': {
             const updatedTransfer = costales.map((c) =>
-              c.codigo_barras === data.codigo ? { ...c, tienda: data.tiendaDestino, estado: CostalStatus.TRASLADADO } : c
+              c.codigo_barras === data.codigo
+                ? {
+                    ...c,
+                    tienda: data.tiendaDestino,
+                    estado: CostalStatus.TRASLADADO,
+                  }
+                : c
             );
             this.saveMockData(MOCK_DB_COSTALES, updatedTransfer);
             resolve({ ok: true });
@@ -359,19 +449,33 @@ class GASService {
           }
 
           case 'listExistencias': {
-            const inventory = costales.filter((c) => c.tienda === data.tienda && c.estado !== CostalStatus.ABIERTO);
+            const inventory = costales.filter(
+              (c) => c.tienda === data.tienda && c.estado !== CostalStatus.ABIERTO
+            );
             resolve({ ok: true, data: inventory });
             break;
           }
 
           case 'listTiendas':
-            resolve({ ok: true, data: stores.length ? stores : [{ id_tienda: 'T01', nombre: 'Tienda 1' }] });
+            resolve({
+              ok: true,
+              data: stores.length
+                ? stores
+                : [{ id_tienda: 'T01', nombre: 'Tienda 1' }],
+            });
             break;
 
           case 'addTienda': {
             const cleanName = String(data.nombre || '').trim();
-            if (stores.some((s) => s.nombre.toLowerCase() === cleanName.toLowerCase())) {
-              resolve({ ok: false, error: 'Ya existe una tienda con ese nombre' });
+            if (
+              stores.some(
+                (s) => s.nombre.toLowerCase() === cleanName.toLowerCase()
+              )
+            ) {
+              resolve({
+                ok: false,
+                error: 'Ya existe una tienda con ese nombre',
+              });
             } else {
               this.saveMockData(MOCK_DB_STORES, [...stores, data]);
               resolve({ ok: true });
@@ -390,25 +494,37 @@ class GASService {
 
           case 'reportes': {
             const totalAperturas = aperturas.length;
-            const avgGlobalDiff = totalAperturas > 0
-              ? aperturas.reduce((acc, curr) => acc + curr.diferencia, 0) / totalAperturas
-              : 0;
+            const avgGlobalDiff =
+              totalAperturas > 0
+                ? aperturas.reduce((acc, curr) => acc + curr.diferencia, 0) /
+                  totalAperturas
+                : 0;
 
-            const safeStores = stores.length ? stores : [{ id_tienda: 'T01', nombre: 'Tienda 1' }];
+            const safeStores = stores.length
+              ? stores
+              : [{ id_tienda: 'T01', nombre: 'Tienda 1' }];
 
             const shopStats = safeStores.map((s) => {
               const received = costales.filter((c) => c.tienda === s.id_tienda).length;
               const opened = aperturas.filter((a) => a.tienda === s.id_tienda).length;
-              const pending = costales.filter((c) => c.tienda === s.id_tienda && c.estado !== CostalStatus.ABIERTO).length;
+              const pending = costales.filter(
+                (c) => c.tienda === s.id_tienda && c.estado !== CostalStatus.ABIERTO
+              ).length;
               return { id: s.id_tienda, nombre: s.nombre, received, opened, pending };
             });
 
-            const userStats = Array.from(new Set(aperturas.map((a) => a.usuario_apertura))).map((email) => {
-              const userAperturas = aperturas.filter((a) => a.usuario_apertura === email);
+            const userStats = Array.from(
+              new Set(aperturas.map((a) => a.usuario_apertura))
+            ).map((email) => {
+              const userAperturas = aperturas.filter(
+                (a) => a.usuario_apertura === email
+              );
               const count = userAperturas.length;
-              const avgDiff = count > 0
-                ? userAperturas.reduce((acc, curr) => acc + curr.diferencia, 0) / count
-                : 0;
+              const avgDiff =
+                count > 0
+                  ? userAperturas.reduce((acc, curr) => acc + curr.diferencia, 0) /
+                    count
+                  : 0;
               return { email, count, avgDiff };
             });
 
@@ -419,7 +535,7 @@ class GASService {
           case 'getDetailedReport': {
             const { type, dateFrom, dateTo, tienda, usuario } = data;
             const start = new Date(dateFrom).getTime();
-            const end = new Date(dateTo).getTime() + (24 * 60 * 60 * 1000);
+            const end = new Date(dateTo).getTime() + 24 * 60 * 60 * 1000;
             let filtered: any[] = [];
 
             if (type === 'STOCK') {
@@ -436,8 +552,16 @@ class GASService {
               });
             }
 
-            if (tienda !== 'ALL') filtered = filtered.filter((item) => item.tienda === tienda);
-            if (usuario !== 'ALL') filtered = filtered.filter((item) => item.usuario_recibe === usuario || item.usuario_apertura === usuario);
+            if (tienda !== 'ALL') {
+              filtered = filtered.filter((item) => item.tienda === tienda);
+            }
+
+            if (usuario !== 'ALL') {
+              filtered = filtered.filter(
+                (item) =>
+                  item.usuario_recibe === usuario || item.usuario_apertura === usuario
+              );
+            }
 
             resolve({ ok: true, data: filtered });
             break;
@@ -459,18 +583,85 @@ class GASService {
   }
 
   async createManagedUser(payload: { actorEmail: string; user: User }) {
-    return this.request('createManagedUser', payload);
+    const res: any = await this.request('createManagedUser', payload);
+
+    if (
+      res?.ok &&
+      res?.data?.tempPassword &&
+      payload?.user?.email &&
+      payload?.user?.nombre
+    ) {
+      const emailRes = await this.sendTempPasswordEmail({
+        to: payload.user.email,
+        nombre: payload.user.nombre,
+        tempPassword: res.data.tempPassword,
+        tipo: 'CREACION',
+      });
+
+      if (!emailRes?.ok) {
+        return {
+          ok: false,
+          error:
+            'El usuario fue creado, pero falló el envío del correo con la contraseña temporal.',
+          partial: true,
+          data: res.data,
+          emailError: emailRes?.error || 'Error desconocido',
+        };
+      }
+
+      return {
+        ...res,
+        data: {
+          ...res.data,
+          emailSent: true,
+        },
+      };
+    }
+
+    return res;
   }
 
   async forgotPassword(email: string) {
-    return this.request('forgotPassword', { email });
+    const res: any = await this.request('forgotPassword', { email });
+
+    if (res?.ok && res?.data?.tempPassword) {
+      const emailRes = await this.sendTempPasswordEmail({
+        to: email,
+        nombre: res?.data?.nombre || 'usuario',
+        tempPassword: res.data.tempPassword,
+        tipo: 'RECUPERACION',
+      });
+
+      if (!emailRes?.ok) {
+        return {
+          ok: false,
+          error:
+            'Se generó la contraseña temporal, pero falló el envío del correo.',
+          partial: true,
+          data: res.data,
+          emailError: emailRes?.error || 'Error desconocido',
+        };
+      }
+
+      return {
+        ...res,
+        data: {
+          ...res.data,
+          emailSent: true,
+        },
+      };
+    }
+
+    return res;
   }
 
   async changePassword(email: string, newPassword: string) {
     return this.request('changePassword', { email, newPassword });
   }
 
-  async updateUsuario(userData: (Partial<User> & { email: string }) & { actorEmail?: string }) {
+  async updateUsuario(
+    userData: (Partial<User> & { email: string }) & { actorEmail?: string }
+  ) {
     return this.request('updateUsuario', userData);
   }
 
@@ -514,7 +705,13 @@ class GASService {
     return this.request('updateTienda', store);
   }
 
-  async getDetailedReport(params: { type: string; dateFrom: string; dateTo: string; tienda: string; usuario: string }) {
+  async getDetailedReport(params: {
+    type: string;
+    dateFrom: string;
+    dateTo: string;
+    tienda: string;
+    usuario: string;
+  }) {
     return this.request('getDetailedReport', params);
   }
 }
