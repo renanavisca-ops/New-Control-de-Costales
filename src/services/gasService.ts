@@ -97,6 +97,14 @@ class GASService {
     );
   }
 
+  private removeAuthRecord(email: string) {
+    const cleanEmail = email.toLowerCase();
+    const records = this.getAuthRecords().filter(
+      (r) => r.email.toLowerCase() !== cleanEmail
+    );
+    this.saveAuthRecords(records);
+  }
+
   private ensureRootAdmin(users: User[]) {
     let normalizedUsers = [...users];
     const existing = normalizedUsers.find(
@@ -270,6 +278,12 @@ class GASService {
               break;
             }
 
+            const storeExists = stores.some((s) => s.id_tienda === tienda);
+            if (!storeExists) {
+              resolve({ ok: false, error: 'La tienda asignada no existe.' });
+              break;
+            }
+
             const newUser: User = {
               nombre,
               email,
@@ -398,6 +412,43 @@ class GASService {
             break;
           }
 
+          case 'deleteUsuario': {
+            const targetEmail = String(data.email || '').trim().toLowerCase();
+            const actorEmail = String(data.actorEmail || '').trim().toLowerCase();
+            const actor = users.find((u) => u.email.toLowerCase() === actorEmail);
+            const target = users.find((u) => u.email.toLowerCase() === targetEmail);
+
+            if (!actor) {
+              resolve({ ok: false, error: 'Actor no válido.' });
+              break;
+            }
+
+            if (!target) {
+              resolve({ ok: false, error: 'Usuario no encontrado.' });
+              break;
+            }
+
+            if (targetEmail === ROOT_ADMIN_EMAIL) {
+              resolve({ ok: false, error: 'No puedes eliminar al administrador principal.' });
+              break;
+            }
+
+            if (actor.rol === Role.ADMIN_2 && (target.rol === Role.ADMIN || target.rol === Role.ADMIN_2)) {
+              resolve({ ok: false, error: 'ADMIN_2 no puede eliminar administradores.' });
+              break;
+            }
+
+            const remainingUsers = users.filter(
+              (u) => u.email.toLowerCase() !== targetEmail
+            );
+
+            this.saveMockData(MOCK_DB_USERS, remainingUsers);
+            this.removeAuthRecord(targetEmail);
+
+            resolve({ ok: true });
+            break;
+          }
+
           case 'listUsuarios': {
             resolve({ ok: true, data: users });
             break;
@@ -522,6 +573,45 @@ class GASService {
               s.id_tienda === data.id_tienda ? { ...s, ...data } : s
             );
             this.saveMockData(MOCK_DB_STORES, updatedStores);
+            resolve({ ok: true });
+            break;
+          }
+
+          case 'deleteTienda': {
+            const id_tienda = String(data.id_tienda || '').trim();
+
+            if (!id_tienda) {
+              resolve({ ok: false, error: 'Tienda no válida.' });
+              break;
+            }
+
+            if (id_tienda === 'T01') {
+              resolve({ ok: false, error: 'No puedes eliminar la tienda principal T01.' });
+              break;
+            }
+
+            const hasUsers = users.some((u) => u.tienda === id_tienda);
+            if (hasUsers) {
+              resolve({
+                ok: false,
+                error: 'No puedes eliminar una tienda que tiene usuarios asignados.',
+              });
+              break;
+            }
+
+            const hasCostales = costales.some((c) => c.tienda === id_tienda);
+            const hasAperturas = aperturas.some((a) => a.tienda === id_tienda);
+
+            if (hasCostales || hasAperturas) {
+              resolve({
+                ok: false,
+                error: 'No puedes eliminar una tienda con movimientos. Resetea la tienda primero.',
+              });
+              break;
+            }
+
+            const filteredStores = stores.filter((s) => s.id_tienda !== id_tienda);
+            this.saveMockData(MOCK_DB_STORES, filteredStores);
             resolve({ ok: true });
             break;
           }
@@ -717,6 +807,10 @@ class GASService {
     return this.request('updateUsuario', userData);
   }
 
+  async deleteUsuario(email: string, actorEmail: string) {
+    return this.request('deleteUsuario', { email, actorEmail });
+  }
+
   async listUsuarios() {
     return this.request('listUsuarios');
   }
@@ -759,6 +853,10 @@ class GASService {
 
   async updateTienda(store: Store) {
     return this.request('updateTienda', store);
+  }
+
+  async deleteTienda(id_tienda: string) {
+    return this.request('deleteTienda', { id_tienda });
   }
 
   async getDetailedReport(params: {
