@@ -61,9 +61,17 @@ const LoginScreen = ({ loading, onLogin, onForgotPassword }: any) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
+  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    onLogin(email, password);
+  };
+
   return (
     <div className="flex flex-col items-center justify-center min-h-[70vh] px-6">
-      <div className="w-full max-w-md bg-white p-10 rounded-[40px] shadow-2xl space-y-8 border border-gray-100">
+      <form
+        onSubmit={handleSubmit}
+        className="w-full max-w-md bg-white p-10 rounded-[40px] shadow-2xl space-y-8 border border-gray-100"
+      >
         <div className="text-center">
           <div className="bg-indigo-600 w-16 h-16 rounded-2xl mx-auto flex items-center justify-center text-3xl shadow-lg shadow-indigo-200 mb-6">📦</div>
           <h1 className="text-4xl font-black text-gray-900 tracking-tight text-center">Control de Costales</h1>
@@ -77,6 +85,7 @@ const LoginScreen = ({ loading, onLogin, onForgotPassword }: any) => {
             onChange={(e) => setEmail(e.target.value)}
             placeholder="correo@empresa.com"
             className="w-full p-5 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-3xl outline-none transition-all font-semibold"
+            autoComplete="email"
           />
 
           <input
@@ -85,10 +94,11 @@ const LoginScreen = ({ loading, onLogin, onForgotPassword }: any) => {
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Contraseña"
             className="w-full p-5 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-3xl outline-none transition-all font-semibold"
+            autoComplete="current-password"
           />
 
           <button
-            onClick={() => onLogin(email, password)}
+            type="submit"
             disabled={loading}
             className="w-full bg-indigo-600 text-white font-black py-5 rounded-3xl shadow-xl shadow-indigo-100 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50"
           >
@@ -96,6 +106,7 @@ const LoginScreen = ({ loading, onLogin, onForgotPassword }: any) => {
           </button>
 
           <button
+            type="button"
             onClick={onForgotPassword}
             className="w-full text-indigo-600 font-bold text-sm"
           >
@@ -106,7 +117,7 @@ const LoginScreen = ({ loading, onLogin, onForgotPassword }: any) => {
             Los usuarios son creados únicamente por el administrador.
           </p>
         </div>
-      </div>
+      </form>
     </div>
   );
 };
@@ -114,9 +125,17 @@ const LoginScreen = ({ loading, onLogin, onForgotPassword }: any) => {
 const ForgotPasswordScreen = ({ loading, onSend, onBack }: any) => {
   const [email, setEmail] = useState('');
 
+  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    onSend(email);
+  };
+
   return (
     <div className="flex flex-col items-center justify-center min-h-[70vh] px-6">
-      <div className="w-full max-w-md bg-white p-10 rounded-[40px] shadow-2xl space-y-8 border border-gray-100">
+      <form
+        onSubmit={handleSubmit}
+        className="w-full max-w-md bg-white p-10 rounded-[40px] shadow-2xl space-y-8 border border-gray-100"
+      >
         <div className="text-center space-y-2">
           <h2 className="text-3xl font-black tracking-tight">Recuperar contraseña</h2>
           <p className="text-gray-400 font-medium">Te enviaremos una contraseña temporal a tu correo.</p>
@@ -129,19 +148,20 @@ const ForgotPasswordScreen = ({ loading, onSend, onBack }: any) => {
             onChange={(e) => setEmail(e.target.value)}
             placeholder="correo@empresa.com"
             className="w-full p-5 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-3xl outline-none transition-all font-semibold"
+            autoComplete="email"
           />
 
           <button
-            onClick={() => onSend(email)}
+            type="submit"
             disabled={loading}
             className="w-full bg-indigo-600 text-white font-black py-5 rounded-3xl shadow-xl shadow-indigo-100 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50"
           >
             {loading ? 'ENVIANDO...' : 'ENVIAR CONTRASEÑA TEMPORAL'}
           </button>
 
-          <button onClick={onBack} className="w-full text-gray-500 font-bold text-sm">Volver</button>
+          <button type="button" onClick={onBack} className="w-full text-gray-500 font-bold text-sm">Volver</button>
         </div>
-      </div>
+      </form>
     </div>
   );
 };
@@ -150,9 +170,17 @@ const ChangePasswordScreen = ({ loading, onSave, onLogout }: any) => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
+  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    onSave(password, confirmPassword);
+  };
+
   return (
     <div className="flex flex-col items-center justify-center min-h-[70vh] px-6">
-      <div className="w-full max-w-md bg-white p-10 rounded-[40px] shadow-2xl space-y-8 border border-gray-100">
+      <form
+        onSubmit={handleSubmit}
+        className="w-full max-w-md bg-white p-10 rounded-[40px] shadow-2xl space-y-8 border border-gray-100"
+      >
         <div className="text-center space-y-2">
           <h2 className="text-3xl font-black tracking-tight">Cambiar contraseña</h2>
           <p className="text-gray-400 font-medium">Debes crear tu contraseña personal para continuar.</p>
@@ -165,6 +193,7 @@ const ChangePasswordScreen = ({ loading, onSave, onLogout }: any) => {
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Nueva contraseña"
             className="w-full p-5 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-3xl outline-none transition-all font-semibold"
+            autoComplete="new-password"
           />
 
           <input
@@ -173,19 +202,20 @@ const ChangePasswordScreen = ({ loading, onSave, onLogout }: any) => {
             onChange={(e) => setConfirmPassword(e.target.value)}
             placeholder="Confirmar nueva contraseña"
             className="w-full p-5 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-3xl outline-none transition-all font-semibold"
+            autoComplete="new-password"
           />
 
           <button
-            onClick={() => onSave(password, confirmPassword)}
+            type="submit"
             disabled={loading}
             className="w-full bg-indigo-600 text-white font-black py-5 rounded-3xl shadow-xl shadow-indigo-100 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50"
           >
             {loading ? 'GUARDANDO...' : 'GUARDAR CONTRASEÑA'}
           </button>
 
-          <button onClick={onLogout} className="w-full text-gray-500 font-bold text-sm">Salir</button>
+          <button type="button" onClick={onLogout} className="w-full text-gray-500 font-bold text-sm">Salir</button>
         </div>
-      </div>
+      </form>
     </div>
   );
 };
