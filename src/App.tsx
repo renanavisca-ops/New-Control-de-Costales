@@ -5,7 +5,7 @@ import { gasService } from './services/gasService';
 import Scanner from './components/Scanner';
 import * as XLSX from 'xlsx';
 
-type Screen = 'LOGIN' | 'REGISTRO' | 'RECEPCION' | 'EXISTENCIAS' | 'APERTURA' | 'METRICAS' | 'REPORTES';
+type Screen = 'LOGIN' | 'CHANGE_PASSWORD' | 'RECEPCION' | 'EXISTENCIAS' | 'APERTURA' | 'METRICAS' | 'REPORTES';
 
 interface ReportData {
   shopStats: { id: string; nombre: string; received: number; opened: number; pending: number }[];
@@ -14,6 +14,27 @@ interface ReportData {
 }
 
 const ROOT_ADMIN_EMAIL = 'curiosidades2526@gmail.com';
+const ROOT_ADMIN_INITIAL_PASSWORD = 'Admin2026!';
+const USER_STORAGE_KEY = 'cc_user_session';
+const QUEUE_STORAGE_KEY = 'cc_offline_queue';
+const STORES_CACHE_KEY = 'cc_stores_cache';
+const AUTH_META_KEY = 'cc_auth_meta';
+
+type AuthMetaMap = Record<string, { password: string; mustChangePassword: boolean }>;
+
+const getAuthMeta = (): AuthMetaMap => {
+  try {
+    return JSON.parse(localStorage.getItem(AUTH_META_KEY) || '{}');
+  } catch {
+    return {};
+  }
+};
+
+const saveAuthMeta = (meta: AuthMetaMap) => {
+  localStorage.setItem(AUTH_META_KEY, JSON.stringify(meta));
+};
+
+const generateTempPassword = () => Math.random().toString(36).slice(-8).toUpperCase();
 
 const generateUUID = () => {
   if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
@@ -47,8 +68,10 @@ const getAssignableRoles = (currentUser: User | null, editingUser: User | null =
   return [Role.OPERADOR];
 };
 
-const LoginScreen = ({ loading, onLogin, onGoRegister }: any) => {
+const LoginScreen = ({ loading, onLogin }: any) => {
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+
   return (
     <div className="flex flex-col items-center justify-center min-h-[70vh] px-6">
       <div className="w-full max-w-md bg-white p-10 rounded-[40px] shadow-2xl space-y-8 border border-gray-100">
@@ -57,6 +80,7 @@ const LoginScreen = ({ loading, onLogin, onGoRegister }: any) => {
           <h1 className="text-4xl font-black text-gray-900 tracking-tight text-center">Control de Costales</h1>
           <p className="text-gray-400 mt-2 font-medium">Gestión Profesional de Inventario</p>
         </div>
+
         <div className="space-y-4">
           <input
             type="email"
@@ -65,46 +89,66 @@ const LoginScreen = ({ loading, onLogin, onGoRegister }: any) => {
             placeholder="correo@empresa.com"
             className="w-full p-5 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-3xl outline-none transition-all font-semibold"
           />
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Contraseña"
+            className="w-full p-5 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-3xl outline-none transition-all font-semibold"
+          />
           <button
-            onClick={() => onLogin(email)}
+            onClick={() => onLogin(email, password)}
             disabled={loading}
             className="w-full bg-indigo-600 text-white font-black py-5 rounded-3xl shadow-xl shadow-indigo-100 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50"
           >
             {loading ? 'CARGANDO...' : 'INICIAR SESIÓN'}
           </button>
-          <button onClick={onGoRegister} className="w-full text-indigo-600 font-bold text-sm">Crear nueva cuenta</button>
+
+          <p className="text-center text-[11px] text-gray-400 font-semibold">
+            El acceso de usuarios nuevos lo crea únicamente el administrador.
+          </p>
         </div>
       </div>
     </div>
   );
 };
 
-const RegisterScreen = ({ loading, stores, onRegister, onBack }: any) => {
-  const [nombre, setNombre] = useState('');
-  const [email, setEmail] = useState('');
-  const [tienda, setTienda] = useState(stores[0]?.id_tienda || '');
-
-  useEffect(() => {
-    if (!tienda && stores[0]?.id_tienda) setTienda(stores[0].id_tienda);
-  }, [stores, tienda]);
+const ChangePasswordScreen = ({ loading, user, onChangePassword, onLogout }: any) => {
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[70vh] px-6">
       <div className="w-full max-w-md bg-white p-10 rounded-[40px] shadow-2xl space-y-8 border border-gray-100">
-        <div className="text-center space-y-2">
-          <h2 className="text-3xl font-black tracking-tight">Nuevo operador</h2>
-          <p className="text-gray-400 font-medium">Los registros nuevos entran solo como OPERADOR.</p>
+        <div className="text-center">
+          <div className="bg-orange-500 w-16 h-16 rounded-2xl mx-auto flex items-center justify-center text-3xl shadow-lg shadow-orange-200 mb-6">🔐</div>
+          <h2 className="text-3xl font-black tracking-tight">Crear nueva contraseña</h2>
+          <p className="text-gray-400 mt-2 font-medium">{user?.email}</p>
         </div>
+
         <div className="space-y-4">
-          <input value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Nombre completo" className="w-full p-5 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-3xl outline-none transition-all font-semibold" />
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="correo@empresa.com" className="w-full p-5 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-3xl outline-none transition-all font-semibold" />
-          <select value={tienda} onChange={(e) => setTienda(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-3xl outline-none transition-all font-semibold">
-            {stores.map((store: Store) => <option key={store.id_tienda} value={store.id_tienda}>{store.nombre}</option>)}
-          </select>
-          <button onClick={() => onRegister({ nombre, email, tienda })} disabled={loading} className="w-full bg-indigo-600 text-white font-black py-5 rounded-3xl shadow-xl shadow-indigo-100 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50">
-            {loading ? 'GUARDANDO...' : 'REGISTRAR OPERADOR'}
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Nueva contraseña"
+            className="w-full p-5 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-3xl outline-none transition-all font-semibold"
+          />
+          <input
+            type="password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            placeholder="Confirmar contraseña"
+            className="w-full p-5 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-3xl outline-none transition-all font-semibold"
+          />
+          <button
+            onClick={() => onChangePassword(password, confirmPassword)}
+            disabled={loading}
+            className="w-full bg-indigo-600 text-white font-black py-5 rounded-3xl shadow-xl shadow-indigo-100 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50"
+          >
+            {loading ? 'GUARDANDO...' : 'GUARDAR CONTRASEÑA'}
           </button>
-          <button onClick={onBack} className="w-full text-gray-500 font-bold text-sm">Volver</button>
+          <button onClick={onLogout} className="w-full text-gray-500 font-bold text-sm">Salir</button>
         </div>
       </div>
     </div>
@@ -244,16 +288,30 @@ const App: React.FC = () => {
   const [selectedCategory, setSelectedCategory] = useState<string>(() => localStorage.getItem('cc_last_category') || CATEGORIES[0]);
   const [sessionScannedCodes, setSessionScannedCodes] = useState<Set<string>>(new Set());
 
-  const USER_STORAGE_KEY = 'cc_user_session';
-  const QUEUE_STORAGE_KEY = 'cc_offline_queue';
-  const STORES_CACHE_KEY = 'cc_stores_cache';
-
   useEffect(() => {
+    const authMeta = getAuthMeta();
+    if (!authMeta[ROOT_ADMIN_EMAIL]) {
+      authMeta[ROOT_ADMIN_EMAIL] = {
+        password: ROOT_ADMIN_INITIAL_PASSWORD,
+        mustChangePassword: true,
+      };
+      saveAuthMeta(authMeta);
+    }
+
     const savedUser = localStorage.getItem(USER_STORAGE_KEY);
     if (savedUser) {
-      setUser(JSON.parse(savedUser));
-      setCurrentScreen('RECEPCION');
+      const parsedUser = JSON.parse(savedUser);
+      setUser(parsedUser);
+
+      const meta = getAuthMeta();
+      const entry = meta[(parsedUser.email || '').toLowerCase()];
+      if (entry?.mustChangePassword) {
+        setCurrentScreen('CHANGE_PASSWORD');
+      } else {
+        setCurrentScreen('RECEPCION');
+      }
     }
+
     const savedQueue = localStorage.getItem(QUEUE_STORAGE_KEY);
     if (savedQueue) {
       const parsed = JSON.parse(savedQueue);
@@ -261,12 +319,14 @@ const App: React.FC = () => {
       const codes = parsed.map((a: OfflineAction) => a.payload.codigo_barras).filter(Boolean);
       setSessionScannedCodes(prev => new Set([...prev, ...codes]));
     }
+
     const savedStores = localStorage.getItem(STORES_CACHE_KEY);
     if (savedStores) setStores(JSON.parse(savedStores));
 
     const handleStatusChange = () => setIsOnline(navigator.onLine);
     window.addEventListener('online', handleStatusChange);
     window.addEventListener('offline', handleStatusChange);
+
     return () => {
       window.removeEventListener('online', handleStatusChange);
       window.removeEventListener('offline', handleStatusChange);
@@ -297,16 +357,39 @@ const App: React.FC = () => {
     setTimeout(() => setNotification(null), 4000);
   };
 
-  const handleLogin = async (email: string) => {
-    if (!email) return showNotify('error', 'Ingresa un correo');
+  const handleLogin = async (email: string, password: string) => {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !password) return showNotify('error', 'Ingresa correo y contraseña');
+
     setLoading(true);
     try {
-      const res: any = await gasService.auth(email.trim().toLowerCase());
+      const authMeta = getAuthMeta();
+      const userMeta = authMeta[cleanEmail];
+
+      if (!userMeta) {
+        showNotify('error', 'Usuario sin contraseña asignada. Debe ser creado por el administrador.');
+        setLoading(false);
+        return;
+      }
+
+      if (userMeta.password !== password) {
+        showNotify('error', 'Contraseña incorrecta.');
+        setLoading(false);
+        return;
+      }
+
+      const res: any = await gasService.auth(cleanEmail);
       if (res.ok && res.data) {
         setUser(res.data);
         localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(res.data));
-        setCurrentScreen('RECEPCION');
-        showNotify('success', `Bienvenido ${res.data.nombre}`);
+
+        if (userMeta.mustChangePassword) {
+          setCurrentScreen('CHANGE_PASSWORD');
+          showNotify('warning', 'Debes cambiar tu contraseña temporal.');
+        } else {
+          setCurrentScreen('RECEPCION');
+          showNotify('success', `Bienvenido ${res.data.nombre}`);
+        }
       } else {
         showNotify('error', res.error || 'Usuario no encontrado.');
       }
@@ -317,27 +400,64 @@ const App: React.FC = () => {
     }
   };
 
-  const handleRegister = async ({ nombre, email, tienda }: { nombre: string; email: string; tienda: string }) => {
-    const cleanEmail = email.trim().toLowerCase();
-    if (!nombre.trim() || !cleanEmail || !tienda) return showNotify('error', 'Completa todos los campos.');
-    if (cleanEmail === ROOT_ADMIN_EMAIL) return showNotify('error', 'Ese correo está reservado para el administrador principal.');
+  const handleChangePassword = async (password: string, confirmPassword: string) => {
+    if (!user) return;
+    if (!password || password.length < 4) return showNotify('error', 'La contraseña debe tener al menos 4 caracteres.');
+    if (password !== confirmPassword) return showNotify('error', 'Las contraseñas no coinciden.');
+
     setLoading(true);
     try {
-      const newUser: User = {
+      const authMeta = getAuthMeta();
+      authMeta[(user.email || '').toLowerCase()] = {
+        password,
+        mustChangePassword: false,
+      };
+      saveAuthMeta(authMeta);
+      setCurrentScreen('RECEPCION');
+      showNotify('success', 'Contraseña actualizada.');
+    } catch {
+      showNotify('error', 'No se pudo actualizar la contraseña.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCreateUser = async ({ nombre, email, tienda, rol }: { nombre: string; email: string; tienda: string; rol: Role }) => {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!user) return { ok: false, error: 'Sin usuario actual.' };
+    if (!nombre.trim() || !cleanEmail || !tienda) return { ok: false, error: 'Completa todos los campos.' };
+    if (cleanEmail === ROOT_ADMIN_EMAIL && !isRootAdmin(user)) return { ok: false, error: 'Ese correo está reservado para el administrador principal.' };
+
+    const allowedRoles = getAssignableRoles(user);
+    if (!allowedRoles.includes(rol)) return { ok: false, error: 'No puedes crear ese rol.' };
+
+    setLoading(true);
+    try {
+      const newUser: any = {
         nombre: nombre.trim(),
         email: cleanEmail,
         tienda,
-        rol: Role.OPERADOR,
+        rol,
       };
+
       const res: any = await gasService.register(newUser);
+
       if (res.ok) {
-        showNotify('success', 'Operador registrado.');
-        setCurrentScreen('LOGIN');
-      } else {
-        showNotify('error', res.error || 'No se pudo registrar.');
+        const authMeta = getAuthMeta();
+        const tempPassword = generateTempPassword();
+        authMeta[cleanEmail] = {
+          password: tempPassword,
+          mustChangePassword: true,
+        };
+        saveAuthMeta(authMeta);
+
+        showNotify('success', 'Usuario creado correctamente.');
+        return { ok: true, tempPassword };
       }
+
+      return { ok: false, error: res.error || 'No se pudo registrar.' };
     } catch {
-      showNotify('error', 'Error al registrar.');
+      return { ok: false, error: 'Error al registrar.' };
     } finally {
       setLoading(false);
     }
@@ -387,6 +507,19 @@ const App: React.FC = () => {
     }
   };
 
+  const handleResetSystem = async () => {
+    if (!user || !isRootAdmin(user)) return showNotify('error', 'Sin permiso.');
+    if (!confirm('Esto borrará Stock, Recibidos y Abiertos locales. ¿Continuar?')) return;
+
+    localStorage.removeItem('costales_stock');
+    localStorage.removeItem('costales_recibidos');
+    localStorage.removeItem('costales_abiertos');
+    localStorage.removeItem('pending_apertura_code');
+    setSessionScannedCodes(new Set());
+
+    showNotify('success', 'Sistema reiniciado localmente.');
+  };
+
   const enqueueAction = (action: Omit<OfflineAction, 'id' | 'timestamp' | 'status'>) => {
     const newAction: OfflineAction = { ...action, id: generateUUID(), timestamp: Date.now(), status: 'pending' };
     const updatedQueue = [...offlineQueue, newAction];
@@ -434,16 +567,28 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {currentScreen === 'LOGIN' && <LoginScreen loading={loading} onLogin={handleLogin} onGoRegister={() => setCurrentScreen('REGISTRO')} />}
-        {currentScreen === 'REGISTRO' && <RegisterScreen loading={loading} stores={stores} onRegister={handleRegister} onBack={() => setCurrentScreen('LOGIN')} />}
+        {currentScreen === 'LOGIN' && <LoginScreen loading={loading} onLogin={handleLogin} />}
+        {currentScreen === 'CHANGE_PASSWORD' && <ChangePasswordScreen loading={loading} user={user} onChangePassword={handleChangePassword} onLogout={handleLogout} />}
         {currentScreen === 'APERTURA' && <AperturaScreen user={user} isOnline={isOnline} showNotify={showNotify} enqueueAction={enqueueAction} loadMetrics={loadMetrics} />}
         {currentScreen === 'EXISTENCIAS' && <ExistenciasView user={user} onOpen={(code: string) => { localStorage.setItem('pending_apertura_code', code); setCurrentScreen('APERTURA'); }} />}
         {currentScreen === 'RECEPCION' && <RecepcionView user={user} isOnline={isOnline} showNotify={showNotify} enqueueAction={enqueueAction} loadMetrics={loadMetrics} selectedCategory={selectedCategory} setSelectedCategory={(cat: string) => { setSelectedCategory(cat); localStorage.setItem('cc_last_category', cat); }} sessionScannedCodes={sessionScannedCodes} setSessionScannedCodes={setSessionScannedCodes} />}
-        {currentScreen === 'METRICAS' && canAccessAdmin(user) && <MetricasView metrics={metrics} user={user} stores={stores} showNotify={showNotify} onAddStore={handleAddStore} onUpdateStore={handleUpdateStore} loading={loading} />}
+        {currentScreen === 'METRICAS' && canAccessAdmin(user) && (
+          <MetricasView
+            metrics={metrics}
+            user={user}
+            stores={stores}
+            showNotify={showNotify}
+            onAddStore={handleAddStore}
+            onUpdateStore={handleUpdateStore}
+            onCreateUser={handleCreateUser}
+            onResetSystem={handleResetSystem}
+            loading={loading}
+          />
+        )}
         {currentScreen === 'REPORTES' && canAccessReports(user) && <ReportesView />}
       </main>
 
-      {user && (
+      {user && currentScreen !== 'CHANGE_PASSWORD' && (
         <nav className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-xl border-t border-gray-100 flex justify-around p-4 pb-6 z-50 max-w-lg mx-auto shadow-[0_-20px_50px_rgba(0,0,0,0.04)] rounded-t-[48px]">
           {navItems.filter(item => item.show).map(tab => (
             <button key={tab.id} onClick={() => setCurrentScreen(tab.id as Screen)} className={`flex flex-col items-center p-2 rounded-2xl transition-all duration-500 ${currentScreen === tab.id ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-100 -translate-y-2' : 'opacity-30'}`}>
@@ -659,21 +804,42 @@ const RecepcionView = ({ user, isOnline, showNotify, enqueueAction, loadMetrics,
   );
 };
 
-const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateStore, loading }: any) => {
-  const [newStoreName, setNewStoreName] = useState('');
-  const [newStoreAddr, setNewStoreAddr] = useState('');
+const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateStore, onCreateUser, onResetSystem, loading }: any) => {
   const [users, setUsers] = useState<User[]>([]);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [editingStore, setEditingStore] = useState<Store | null>(null);
   const [showStores, setShowStores] = useState(false);
+  const [showNewStoreModal, setShowNewStoreModal] = useState(false);
+  const [showNewUserModal, setShowNewUserModal] = useState(false);
+  const [newStoreName, setNewStoreName] = useState('');
+  const [newStoreAddr, setNewStoreAddr] = useState('');
+  const [newUserName, setNewUserName] = useState('');
+  const [newUserEmail, setNewUserEmail] = useState('');
+  const [newUserStore, setNewUserStore] = useState(stores[0]?.id_tienda || '');
+  const [newUserRole, setNewUserRole] = useState<Role>(getAssignableRoles(user)[0] as Role);
 
   const limitedAdmin = user?.rol === Role.ADMIN_2;
 
-  useEffect(() => {
+  const loadUsers = useCallback(() => {
     gasService.listUsuarios().then((res: any) => {
       if (res.ok) setUsers(res.data);
     });
   }, []);
+
+  useEffect(() => {
+    loadUsers();
+  }, [loadUsers]);
+
+  useEffect(() => {
+    if (!newUserStore && stores[0]?.id_tienda) setNewUserStore(stores[0].id_tienda);
+  }, [stores, newUserStore]);
+
+  useEffect(() => {
+    const roles = getAssignableRoles(user);
+    if (!roles.includes(newUserRole)) {
+      setNewUserRole(roles[0] as Role);
+    }
+  }, [user, newUserRole]);
 
   const visibleUsers = useMemo(() => {
     if (!limitedAdmin) return users;
@@ -697,6 +863,34 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
     }
   };
 
+  const handleCreateUserSubmit = async () => {
+    const res = await onCreateUser({
+      nombre: newUserName,
+      email: newUserEmail,
+      tienda: newUserStore,
+      rol: newUserRole,
+    });
+
+    if (res.ok) {
+      showNotify('success', `Usuario creado. Contraseña temporal: ${res.tempPassword}`);
+      setNewUserName('');
+      setNewUserEmail('');
+      setNewUserStore(stores[0]?.id_tienda || '');
+      setNewUserRole(getAssignableRoles(user)[0] as Role);
+      setShowNewUserModal(false);
+      loadUsers();
+    } else {
+      showNotify('error', res.error || 'No se pudo crear el usuario.');
+    }
+  };
+
+  const handleCreateStoreSubmit = async () => {
+    await onAddStore(newStoreName, newStoreAddr);
+    setNewStoreName('');
+    setNewStoreAddr('');
+    setShowNewStoreModal(false);
+  };
+
   const userPerf = metrics?.userStats.find((u: any) => u.email === user?.email);
 
   return (
@@ -705,6 +899,31 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
         <h2 className="text-[10px] font-black opacity-60 uppercase tracking-widest mb-1">Tu Rendimiento</h2>
         <p className="text-4xl font-black">{userPerf?.avgDiff?.toFixed(1) || '0.0'}</p>
         <p className="text-[10px] font-bold opacity-80 uppercase mt-1">DIFERENCIA PROMEDIO (Pzs)</p>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3">
+        <button
+          onClick={() => setShowNewUserModal(true)}
+          className="w-full bg-indigo-600 text-white font-black py-4 rounded-[28px] text-xs uppercase tracking-widest shadow-xl"
+        >
+          Crear Usuario
+        </button>
+
+        <button
+          onClick={() => setShowNewStoreModal(true)}
+          className="w-full bg-gray-900 text-white font-black py-4 rounded-[28px] text-xs uppercase tracking-widest shadow-xl"
+        >
+          Nueva Sede
+        </button>
+
+        {isRootAdmin(user) && (
+          <button
+            onClick={onResetSystem}
+            className="w-full bg-red-600 text-white font-black py-4 rounded-[28px] text-xs uppercase tracking-widest shadow-xl"
+          >
+            Resetear Sistema
+          </button>
+        )}
       </div>
 
       <div className="space-y-4">
@@ -761,16 +980,91 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
         )}
       </div>
 
-      <div className="bg-gray-900 p-8 rounded-[40px] text-white space-y-4 shadow-2xl">
-        <h2 className="font-black text-[10px] uppercase tracking-widest opacity-40">Nueva Sede</h2>
-        <div className="space-y-3">
-          <input type="text" value={newStoreName} onChange={e => setNewStoreName(e.target.value)} placeholder="Nombre de la Tienda" className="w-full p-4 bg-gray-800 rounded-2xl outline-none font-bold text-sm text-white focus:ring-2 focus:ring-indigo-500" />
-          <input type="text" value={newStoreAddr} onChange={e => setNewStoreAddr(e.target.value)} placeholder="Dirección completa..." className="w-full p-4 bg-gray-800 rounded-2xl outline-none font-bold text-sm text-white focus:ring-2 focus:ring-indigo-500" />
-          <button onClick={() => { onAddStore(newStoreName, newStoreAddr); setNewStoreName(''); setNewStoreAddr(''); }} disabled={loading || !newStoreName} className="w-full bg-indigo-600 py-4 rounded-2xl font-black text-xs uppercase shadow-lg shadow-indigo-900/20 active:scale-95 transition-all disabled:opacity-50">
-            Añadir Tienda
-          </button>
+      {showNewUserModal && (
+        <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-4">
+          <div className="bg-white w-full max-w-md rounded-[40px] p-8 space-y-6 shadow-2xl">
+            <div className="flex justify-between items-center">
+              <h3 className="text-xl font-black">Crear Usuario</h3>
+              <button onClick={() => setShowNewUserModal(false)} className="text-gray-400 font-bold">Cerrar</button>
+            </div>
+
+            <div className="space-y-4">
+              <input
+                type="text"
+                value={newUserName}
+                onChange={(e) => setNewUserName(e.target.value)}
+                placeholder="Nombre completo"
+                className="w-full p-4 bg-gray-50 rounded-2xl font-bold"
+              />
+              <input
+                type="email"
+                value={newUserEmail}
+                onChange={(e) => setNewUserEmail(e.target.value)}
+                placeholder="correo@empresa.com"
+                className="w-full p-4 bg-gray-50 rounded-2xl font-bold"
+              />
+              <select
+                value={newUserStore}
+                onChange={(e) => setNewUserStore(e.target.value)}
+                className="w-full p-4 bg-gray-50 rounded-2xl font-bold"
+              >
+                {stores.map((s: Store) => <option key={s.id_tienda} value={s.id_tienda}>{s.nombre}</option>)}
+              </select>
+              <select
+                value={newUserRole}
+                onChange={(e) => setNewUserRole(e.target.value as Role)}
+                className="w-full p-4 bg-gray-50 rounded-2xl font-bold"
+              >
+                {getAssignableRoles(user).map((r) => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </div>
+
+            <button
+              onClick={handleCreateUserSubmit}
+              disabled={loading}
+              className="w-full bg-indigo-600 text-white font-black py-4 rounded-3xl shadow-xl shadow-indigo-100 disabled:opacity-50"
+            >
+              {loading ? 'CREANDO...' : 'CREAR USUARIO'}
+            </button>
+          </div>
         </div>
-      </div>
+      )}
+
+      {showNewStoreModal && (
+        <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-4">
+          <div className="bg-gray-900 w-full max-w-md rounded-[40px] p-8 space-y-6 shadow-2xl">
+            <div className="flex justify-between items-center">
+              <h3 className="text-xl font-black text-white">Nueva Sede</h3>
+              <button onClick={() => setShowNewStoreModal(false)} className="text-gray-400 font-bold">Cerrar</button>
+            </div>
+
+            <div className="space-y-4">
+              <input
+                type="text"
+                value={newStoreName}
+                onChange={e => setNewStoreName(e.target.value)}
+                placeholder="Nombre de la Tienda"
+                className="w-full p-4 bg-gray-800 rounded-2xl outline-none font-bold text-sm text-white focus:ring-2 focus:ring-indigo-500"
+              />
+              <input
+                type="text"
+                value={newStoreAddr}
+                onChange={e => setNewStoreAddr(e.target.value)}
+                placeholder="Dirección completa..."
+                className="w-full p-4 bg-gray-800 rounded-2xl outline-none font-bold text-sm text-white focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+
+            <button
+              onClick={handleCreateStoreSubmit}
+              disabled={loading || !newStoreName}
+              className="w-full bg-indigo-600 py-4 rounded-2xl font-black text-xs uppercase shadow-lg shadow-indigo-900/20 active:scale-95 transition-all disabled:opacity-50 text-white"
+            >
+              Añadir Tienda
+            </button>
+          </div>
+        </div>
+      )}
 
       {editingUser && (
         <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-4">
