@@ -5,7 +5,15 @@ import { gasService } from './services/gasService';
 import Scanner from './components/Scanner';
 import * as XLSX from 'xlsx';
 
-type Screen = 'LOGIN' | 'CHANGE_PASSWORD' | 'RECEPCION' | 'EXISTENCIAS' | 'APERTURA' | 'METRICAS' | 'REPORTES';
+type Screen =
+  | 'LOGIN'
+  | 'FORGOT_PASSWORD'
+  | 'CHANGE_PASSWORD'
+  | 'RECEPCION'
+  | 'EXISTENCIAS'
+  | 'APERTURA'
+  | 'METRICAS'
+  | 'REPORTES';
 
 interface ReportData {
   shopStats: { id: string; nombre: string; received: number; opened: number; pending: number }[];
@@ -14,27 +22,6 @@ interface ReportData {
 }
 
 const ROOT_ADMIN_EMAIL = 'curiosidades2526@gmail.com';
-const ROOT_ADMIN_INITIAL_PASSWORD = 'Admin2026!';
-const USER_STORAGE_KEY = 'cc_user_session';
-const QUEUE_STORAGE_KEY = 'cc_offline_queue';
-const STORES_CACHE_KEY = 'cc_stores_cache';
-const AUTH_META_KEY = 'cc_auth_meta';
-
-type AuthMetaMap = Record<string, { password: string; mustChangePassword: boolean }>;
-
-const getAuthMeta = (): AuthMetaMap => {
-  try {
-    return JSON.parse(localStorage.getItem(AUTH_META_KEY) || '{}');
-  } catch {
-    return {};
-  }
-};
-
-const saveAuthMeta = (meta: AuthMetaMap) => {
-  localStorage.setItem(AUTH_META_KEY, JSON.stringify(meta));
-};
-
-const generateTempPassword = () => Math.random().toString(36).slice(-8).toUpperCase();
 
 const generateUUID = () => {
   if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
@@ -48,6 +35,7 @@ const generateUUID = () => {
 const canAccessAdmin = (user: User | null) => user?.rol === Role.ADMIN || user?.rol === Role.ADMIN_2;
 const canAccessReports = (user: User | null) => user?.rol === Role.ADMIN || user?.rol === Role.ADMIN_2;
 const isRootAdmin = (user: User | null) => (user?.email || '').toLowerCase() === ROOT_ADMIN_EMAIL;
+
 const canManageUser = (currentUser: User | null, target: User) => {
   if (!currentUser) return false;
   if (isRootAdmin(currentUser)) return true;
@@ -56,6 +44,7 @@ const canManageUser = (currentUser: User | null, target: User) => {
   }
   return false;
 };
+
 const getAssignableRoles = (currentUser: User | null, editingUser: User | null = null) => {
   if (!currentUser) return [Role.OPERADOR];
   if (isRootAdmin(currentUser)) {
@@ -68,7 +57,7 @@ const getAssignableRoles = (currentUser: User | null, editingUser: User | null =
   return [Role.OPERADOR];
 };
 
-const LoginScreen = ({ loading, onLogin }: any) => {
+const LoginScreen = ({ loading, onLogin, onForgotPassword }: any) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
@@ -89,6 +78,7 @@ const LoginScreen = ({ loading, onLogin }: any) => {
             placeholder="correo@empresa.com"
             className="w-full p-5 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-3xl outline-none transition-all font-semibold"
           />
+
           <input
             type="password"
             value={password}
@@ -96,6 +86,7 @@ const LoginScreen = ({ loading, onLogin }: any) => {
             placeholder="Contraseña"
             className="w-full p-5 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-3xl outline-none transition-all font-semibold"
           />
+
           <button
             onClick={() => onLogin(email, password)}
             disabled={loading}
@@ -104,8 +95,15 @@ const LoginScreen = ({ loading, onLogin }: any) => {
             {loading ? 'CARGANDO...' : 'INICIAR SESIÓN'}
           </button>
 
-          <p className="text-center text-[11px] text-gray-400 font-semibold">
-            El acceso de usuarios nuevos lo crea únicamente el administrador.
+          <button
+            onClick={onForgotPassword}
+            className="w-full text-indigo-600 font-bold text-sm"
+          >
+            Olvidé mi contraseña
+          </button>
+
+          <p className="text-center text-[11px] text-gray-400 font-medium">
+            Los usuarios son creados únicamente por el administrador.
           </p>
         </div>
       </div>
@@ -113,17 +111,51 @@ const LoginScreen = ({ loading, onLogin }: any) => {
   );
 };
 
-const ChangePasswordScreen = ({ loading, user, onChangePassword, onLogout }: any) => {
+const ForgotPasswordScreen = ({ loading, onSend, onBack }: any) => {
+  const [email, setEmail] = useState('');
+
+  return (
+    <div className="flex flex-col items-center justify-center min-h-[70vh] px-6">
+      <div className="w-full max-w-md bg-white p-10 rounded-[40px] shadow-2xl space-y-8 border border-gray-100">
+        <div className="text-center space-y-2">
+          <h2 className="text-3xl font-black tracking-tight">Recuperar contraseña</h2>
+          <p className="text-gray-400 font-medium">Te enviaremos una contraseña temporal a tu correo.</p>
+        </div>
+
+        <div className="space-y-4">
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="correo@empresa.com"
+            className="w-full p-5 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-3xl outline-none transition-all font-semibold"
+          />
+
+          <button
+            onClick={() => onSend(email)}
+            disabled={loading}
+            className="w-full bg-indigo-600 text-white font-black py-5 rounded-3xl shadow-xl shadow-indigo-100 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50"
+          >
+            {loading ? 'ENVIANDO...' : 'ENVIAR CONTRASEÑA TEMPORAL'}
+          </button>
+
+          <button onClick={onBack} className="w-full text-gray-500 font-bold text-sm">Volver</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const ChangePasswordScreen = ({ loading, onSave, onLogout }: any) => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[70vh] px-6">
       <div className="w-full max-w-md bg-white p-10 rounded-[40px] shadow-2xl space-y-8 border border-gray-100">
-        <div className="text-center">
-          <div className="bg-orange-500 w-16 h-16 rounded-2xl mx-auto flex items-center justify-center text-3xl shadow-lg shadow-orange-200 mb-6">🔐</div>
-          <h2 className="text-3xl font-black tracking-tight">Crear nueva contraseña</h2>
-          <p className="text-gray-400 mt-2 font-medium">{user?.email}</p>
+        <div className="text-center space-y-2">
+          <h2 className="text-3xl font-black tracking-tight">Cambiar contraseña</h2>
+          <p className="text-gray-400 font-medium">Debes crear tu contraseña personal para continuar.</p>
         </div>
 
         <div className="space-y-4">
@@ -134,20 +166,23 @@ const ChangePasswordScreen = ({ loading, user, onChangePassword, onLogout }: any
             placeholder="Nueva contraseña"
             className="w-full p-5 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-3xl outline-none transition-all font-semibold"
           />
+
           <input
             type="password"
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
-            placeholder="Confirmar contraseña"
+            placeholder="Confirmar nueva contraseña"
             className="w-full p-5 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-3xl outline-none transition-all font-semibold"
           />
+
           <button
-            onClick={() => onChangePassword(password, confirmPassword)}
+            onClick={() => onSave(password, confirmPassword)}
             disabled={loading}
             className="w-full bg-indigo-600 text-white font-black py-5 rounded-3xl shadow-xl shadow-indigo-100 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50"
           >
             {loading ? 'GUARDANDO...' : 'GUARDAR CONTRASEÑA'}
           </button>
+
           <button onClick={onLogout} className="w-full text-gray-500 font-bold text-sm">Salir</button>
         </div>
       </div>
@@ -279,6 +314,7 @@ const AperturaScreen = ({ user, isOnline, showNotify, enqueueAction, loadMetrics
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [currentScreen, setCurrentScreen] = useState<Screen>('LOGIN');
+  const [mustChangePassword, setMustChangePassword] = useState(false);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [offlineQueue, setOfflineQueue] = useState<OfflineAction[]>([]);
   const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'warning'; msg: string } | null>(null);
@@ -288,28 +324,15 @@ const App: React.FC = () => {
   const [selectedCategory, setSelectedCategory] = useState<string>(() => localStorage.getItem('cc_last_category') || CATEGORIES[0]);
   const [sessionScannedCodes, setSessionScannedCodes] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
-    const authMeta = getAuthMeta();
-    if (!authMeta[ROOT_ADMIN_EMAIL]) {
-      authMeta[ROOT_ADMIN_EMAIL] = {
-        password: ROOT_ADMIN_INITIAL_PASSWORD,
-        mustChangePassword: true,
-      };
-      saveAuthMeta(authMeta);
-    }
+  const USER_STORAGE_KEY = 'cc_user_session';
+  const QUEUE_STORAGE_KEY = 'cc_offline_queue';
+  const STORES_CACHE_KEY = 'cc_stores_cache';
 
+  useEffect(() => {
     const savedUser = localStorage.getItem(USER_STORAGE_KEY);
     if (savedUser) {
-      const parsedUser = JSON.parse(savedUser);
-      setUser(parsedUser);
-
-      const meta = getAuthMeta();
-      const entry = meta[(parsedUser.email || '').toLowerCase()];
-      if (entry?.mustChangePassword) {
-        setCurrentScreen('CHANGE_PASSWORD');
-      } else {
-        setCurrentScreen('RECEPCION');
-      }
+      setUser(JSON.parse(savedUser));
+      setCurrentScreen('RECEPCION');
     }
 
     const savedQueue = localStorage.getItem(QUEUE_STORAGE_KEY);
@@ -326,7 +349,6 @@ const App: React.FC = () => {
     const handleStatusChange = () => setIsOnline(navigator.onLine);
     window.addEventListener('online', handleStatusChange);
     window.addEventListener('offline', handleStatusChange);
-
     return () => {
       window.removeEventListener('online', handleStatusChange);
       window.removeEventListener('offline', handleStatusChange);
@@ -363,38 +385,44 @@ const App: React.FC = () => {
 
     setLoading(true);
     try {
-      const authMeta = getAuthMeta();
-      const userMeta = authMeta[cleanEmail];
-
-      if (!userMeta) {
-        showNotify('error', 'Usuario sin contraseña asignada. Debe ser creado por el administrador.');
-        setLoading(false);
-        return;
-      }
-
-      if (userMeta.password !== password) {
-        showNotify('error', 'Contraseña incorrecta.');
-        setLoading(false);
-        return;
-      }
-
-      const res: any = await gasService.auth(cleanEmail);
+      const res: any = await gasService.auth(cleanEmail, password);
       if (res.ok && res.data) {
-        setUser(res.data);
-        localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(res.data));
+        setUser(res.data.user || res.data);
+        setMustChangePassword(!!res.data.mustChangePassword);
+        localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(res.data.user || res.data));
 
-        if (userMeta.mustChangePassword) {
+        if (res.data.mustChangePassword) {
           setCurrentScreen('CHANGE_PASSWORD');
           showNotify('warning', 'Debes cambiar tu contraseña temporal.');
         } else {
           setCurrentScreen('RECEPCION');
-          showNotify('success', `Bienvenido ${res.data.nombre}`);
+          showNotify('success', `Bienvenido ${(res.data.user || res.data).nombre}`);
         }
       } else {
-        showNotify('error', res.error || 'Usuario no encontrado.');
+        showNotify('error', res.error || 'Credenciales inválidas.');
       }
     } catch {
       showNotify('error', 'Error al autenticar.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async (email: string) => {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail) return showNotify('error', 'Ingresa un correo');
+
+    setLoading(true);
+    try {
+      const res: any = await gasService.forgotPassword(cleanEmail);
+      if (res.ok) {
+        showNotify('success', 'Se envió una contraseña temporal a tu correo.');
+        setCurrentScreen('LOGIN');
+      } else {
+        showNotify('error', res.error || 'No se pudo procesar la recuperación.');
+      }
+    } catch {
+      showNotify('error', 'Error al recuperar contraseña.');
     } finally {
       setLoading(false);
     }
@@ -407,24 +435,25 @@ const App: React.FC = () => {
 
     setLoading(true);
     try {
-      const authMeta = getAuthMeta();
-      authMeta[(user.email || '').toLowerCase()] = {
-        password,
-        mustChangePassword: false,
-      };
-      saveAuthMeta(authMeta);
-      setCurrentScreen('RECEPCION');
-      showNotify('success', 'Contraseña actualizada.');
+      const res: any = await gasService.changePassword(user.email, password);
+      if (res.ok) {
+        setMustChangePassword(false);
+        setCurrentScreen('RECEPCION');
+        showNotify('success', 'Contraseña actualizada.');
+      } else {
+        showNotify('error', res.error || 'No se pudo cambiar la contraseña.');
+      }
     } catch {
-      showNotify('error', 'No se pudo actualizar la contraseña.');
+      showNotify('error', 'Error al cambiar contraseña.');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleCreateUser = async ({ nombre, email, tienda, rol }: { nombre: string; email: string; tienda: string; rol: Role }) => {
+  const handleCreateManagedUser = async ({ nombre, email, tienda, rol }: { nombre: string; email: string; tienda: string; rol: Role }) => {
     const cleanEmail = email.trim().toLowerCase();
-    if (!user) return { ok: false, error: 'Sin usuario actual.' };
+
+    if (!user) return { ok: false, error: 'No autorizado.' };
     if (!nombre.trim() || !cleanEmail || !tienda) return { ok: false, error: 'Completa todos los campos.' };
     if (cleanEmail === ROOT_ADMIN_EMAIL && !isRootAdmin(user)) return { ok: false, error: 'Ese correo está reservado para el administrador principal.' };
 
@@ -433,26 +462,20 @@ const App: React.FC = () => {
 
     setLoading(true);
     try {
-      const newUser: any = {
+      const newUser: User = {
         nombre: nombre.trim(),
         email: cleanEmail,
         tienda,
         rol,
       };
 
-      const res: any = await gasService.register(newUser);
+      const res: any = await gasService.createManagedUser({
+        actorEmail: user.email,
+        user: newUser,
+      });
 
       if (res.ok) {
-        const authMeta = getAuthMeta();
-        const tempPassword = generateTempPassword();
-        authMeta[cleanEmail] = {
-          password: tempPassword,
-          mustChangePassword: true,
-        };
-        saveAuthMeta(authMeta);
-
-        showNotify('success', 'Usuario creado correctamente.');
-        return { ok: true, tempPassword };
+        return { ok: true };
       }
 
       return { ok: false, error: res.error || 'No se pudo registrar.' };
@@ -472,6 +495,7 @@ const App: React.FC = () => {
     setLoading(true);
     const newId = 'T' + (stores.length + 1).toString().padStart(2, '0');
     const newStore = { id_tienda: newId, nombre: cleanName, direccion: address };
+
     try {
       const res: any = await gasService.addStore(newStore);
       if (res.ok) {
@@ -509,7 +533,7 @@ const App: React.FC = () => {
 
   const handleResetSystem = async () => {
     if (!user || !isRootAdmin(user)) return showNotify('error', 'Sin permiso.');
-    if (!confirm('Esto borrará Stock, Recibidos y Abiertos locales. ¿Continuar?')) return;
+    if (!confirm('Esto reiniciará datos locales de stock, recibidos y aperturas. ¿Continuar?')) return;
 
     localStorage.removeItem('costales_stock');
     localStorage.removeItem('costales_recibidos');
@@ -517,7 +541,7 @@ const App: React.FC = () => {
     localStorage.removeItem('pending_apertura_code');
     setSessionScannedCodes(new Set());
 
-    showNotify('success', 'Sistema reiniciado localmente.');
+    showNotify('success', 'Sistema reseteado localmente.');
   };
 
   const enqueueAction = (action: Omit<OfflineAction, 'id' | 'timestamp' | 'status'>) => {
@@ -531,6 +555,7 @@ const App: React.FC = () => {
   const handleLogout = () => {
     localStorage.removeItem(USER_STORAGE_KEY);
     setUser(null);
+    setMustChangePassword(false);
     setCurrentScreen('LOGIN');
   };
 
@@ -567,8 +592,30 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {currentScreen === 'LOGIN' && <LoginScreen loading={loading} onLogin={handleLogin} />}
-        {currentScreen === 'CHANGE_PASSWORD' && <ChangePasswordScreen loading={loading} user={user} onChangePassword={handleChangePassword} onLogout={handleLogout} />}
+        {currentScreen === 'LOGIN' && (
+          <LoginScreen
+            loading={loading}
+            onLogin={handleLogin}
+            onForgotPassword={() => setCurrentScreen('FORGOT_PASSWORD')}
+          />
+        )}
+
+        {currentScreen === 'FORGOT_PASSWORD' && (
+          <ForgotPasswordScreen
+            loading={loading}
+            onSend={handleForgotPassword}
+            onBack={() => setCurrentScreen('LOGIN')}
+          />
+        )}
+
+        {currentScreen === 'CHANGE_PASSWORD' && (
+          <ChangePasswordScreen
+            loading={loading}
+            onSave={handleChangePassword}
+            onLogout={handleLogout}
+          />
+        )}
+
         {currentScreen === 'APERTURA' && <AperturaScreen user={user} isOnline={isOnline} showNotify={showNotify} enqueueAction={enqueueAction} loadMetrics={loadMetrics} />}
         {currentScreen === 'EXISTENCIAS' && <ExistenciasView user={user} onOpen={(code: string) => { localStorage.setItem('pending_apertura_code', code); setCurrentScreen('APERTURA'); }} />}
         {currentScreen === 'RECEPCION' && <RecepcionView user={user} isOnline={isOnline} showNotify={showNotify} enqueueAction={enqueueAction} loadMetrics={loadMetrics} selectedCategory={selectedCategory} setSelectedCategory={(cat: string) => { setSelectedCategory(cat); localStorage.setItem('cc_last_category', cat); }} sessionScannedCodes={sessionScannedCodes} setSessionScannedCodes={setSessionScannedCodes} />}
@@ -580,7 +627,7 @@ const App: React.FC = () => {
             showNotify={showNotify}
             onAddStore={handleAddStore}
             onUpdateStore={handleUpdateStore}
-            onCreateUser={handleCreateUser}
+            onCreateManagedUser={handleCreateManagedUser}
             onResetSystem={handleResetSystem}
             loading={loading}
           />
@@ -804,15 +851,17 @@ const RecepcionView = ({ user, isOnline, showNotify, enqueueAction, loadMetrics,
   );
 };
 
-const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateStore, onCreateUser, onResetSystem, loading }: any) => {
+const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateStore, onCreateManagedUser, onResetSystem, loading }: any) => {
   const [users, setUsers] = useState<User[]>([]);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [editingStore, setEditingStore] = useState<Store | null>(null);
   const [showStores, setShowStores] = useState(false);
   const [showNewStoreModal, setShowNewStoreModal] = useState(false);
   const [showNewUserModal, setShowNewUserModal] = useState(false);
+
   const [newStoreName, setNewStoreName] = useState('');
   const [newStoreAddr, setNewStoreAddr] = useState('');
+
   const [newUserName, setNewUserName] = useState('');
   const [newUserEmail, setNewUserEmail] = useState('');
   const [newUserStore, setNewUserStore] = useState(stores[0]?.id_tienda || '');
@@ -836,9 +885,7 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
 
   useEffect(() => {
     const roles = getAssignableRoles(user);
-    if (!roles.includes(newUserRole)) {
-      setNewUserRole(roles[0] as Role);
-    }
+    if (!roles.includes(newUserRole)) setNewUserRole(roles[0] as Role);
   }, [user, newUserRole]);
 
   const visibleUsers = useMemo(() => {
@@ -864,7 +911,7 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
   };
 
   const handleCreateUserSubmit = async () => {
-    const res = await onCreateUser({
+    const res = await onCreateManagedUser({
       nombre: newUserName,
       email: newUserEmail,
       tienda: newUserStore,
@@ -872,7 +919,7 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
     });
 
     if (res.ok) {
-      showNotify('success', `Usuario creado. Contraseña temporal: ${res.tempPassword}`);
+      showNotify('success', 'Usuario creado. Se envió contraseña temporal por correo.');
       setNewUserName('');
       setNewUserEmail('');
       setNewUserStore(stores[0]?.id_tienda || '');
@@ -996,6 +1043,7 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
                 placeholder="Nombre completo"
                 className="w-full p-4 bg-gray-50 rounded-2xl font-bold"
               />
+
               <input
                 type="email"
                 value={newUserEmail}
@@ -1003,6 +1051,7 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
                 placeholder="correo@empresa.com"
                 className="w-full p-4 bg-gray-50 rounded-2xl font-bold"
               />
+
               <select
                 value={newUserStore}
                 onChange={(e) => setNewUserStore(e.target.value)}
@@ -1010,6 +1059,7 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
               >
                 {stores.map((s: Store) => <option key={s.id_tienda} value={s.id_tienda}>{s.nombre}</option>)}
               </select>
+
               <select
                 value={newUserRole}
                 onChange={(e) => setNewUserRole(e.target.value as Role)}
@@ -1017,6 +1067,10 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
               >
                 {getAssignableRoles(user).map((r) => <option key={r} value={r}>{r}</option>)}
               </select>
+
+              <p className="text-[11px] text-gray-400 font-medium">
+                Al crear el usuario se enviará una contraseña temporal al correo.
+              </p>
             </div>
 
             <button
