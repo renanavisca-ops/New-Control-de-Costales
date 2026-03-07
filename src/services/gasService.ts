@@ -25,7 +25,11 @@ type AuthRecord = {
 
 class GASService {
   private async request(action: string, data: any = {}) {
-    if (GAS_URL.includes('REPLACE')) {
+    if (
+      !GAS_URL ||
+      GAS_URL === 'MOCK' ||
+      GAS_URL.includes('REPLACE_WITH_YOUR_DEPLOY_ID')
+    ) {
       console.warn(`GAS_URL no configurada. Simulando acción: ${action}`);
       return this.mockResponse(action, data);
     }
@@ -146,7 +150,10 @@ class GASService {
       return json;
     } catch (error) {
       console.error('sendTempPasswordEmail failed:', error);
-      return { ok: false, error: 'No se pudo contactar el servicio de correo.' };
+      return {
+        ok: false,
+        error: 'No se pudo contactar el servicio de correo.',
+      };
     }
   }
 
@@ -216,6 +223,7 @@ class GASService {
             const nombre = String(rawUser.nombre || '').trim();
             const tienda = String(rawUser.tienda || '').trim();
             const rol = rawUser.rol as Role;
+            const passwordFromRequest = String(rawUser.password || '').trim();
 
             if (!email || !nombre || !tienda || !rol) {
               resolve({ ok: false, error: 'Faltan datos del usuario.' });
@@ -269,7 +277,8 @@ class GASService {
               rol,
             };
 
-            const tempPassword = this.generateTempPassword();
+            const tempPassword =
+              passwordFromRequest || this.generateTempPassword();
 
             this.saveMockData(MOCK_DB_USERS, [...users, newUser]);
             this.upsertAuthRecord(email, tempPassword, true);
@@ -389,8 +398,28 @@ class GASService {
             break;
           }
 
-          case 'listUsuarios': {
-            resolve({ ok: true, data: users });
+          case 'resetStoreData': {
+            const tienda = String(data.tienda || '').trim();
+
+            if (!tienda) {
+              resolve({ ok: false, error: 'Debes indicar una tienda.' });
+              break;
+            }
+
+            const filteredCostales = costales.filter((c) => c.tienda !== tienda);
+            const filteredAperturas = aperturas.filter((a) => a.tienda !== tienda);
+
+            this.saveMockData(MOCK_DB_COSTALES, filteredCostales);
+            this.saveMockData(MOCK_DB_APERTURAS, filteredAperturas);
+
+            resolve({
+              ok: true,
+              data: {
+                tienda,
+                removedCostales: costales.length - filteredCostales.length,
+                removedAperturas: aperturas.length - filteredAperturas.length,
+              },
+            });
             break;
           }
 
@@ -583,42 +612,60 @@ class GASService {
   }
 
   async createManagedUser(payload: { actorEmail: string; user: User }) {
-    const res: any = await this.request('createManagedUser', payload);
+    const email = String(payload?.user?.email || '').trim().toLowerCase();
+    const nombre = String(payload?.user?.nombre || '').trim();
 
-    if (
-      res?.ok &&
-      res?.data?.tempPassword &&
-      payload?.user?.email &&
-      payload?.user?.nombre
-    ) {
-      const emailRes = await this.sendTempPasswordEmail({
-        to: payload.user.email,
-        nombre: payload.user.nombre,
-        tempPassword: res.data.tempPassword,
-        tipo: 'CREACION',
-      });
+    if (!email || !nombre) {
+      return { ok: false, error: 'Datos de usuario incompletos.' };
+    }
 
-      if (!emailRes?.ok) {
-        return {
-          ok: false,
-          error:
-            'El usuario fue creado, pero falló el envío del correo con la contraseña temporal.',
-          partial: true,
-          data: res.data,
-          emailError: emailRes?.error || 'Error desconocido',
-        };
-      }
+    const tempPassword = this.generateTempPassword();
 
+    const res: any = await this.request('createManagedUser', {
+      actorEmail: payload.actorEmail,
+      user: {
+        ...payload.user,
+        email,
+        password: tempPassword,
+      },
+    });
+
+    if (!res?.ok) {
+      return res;
+    }
+
+    const savedPassword = res?.data?.tempPassword || tempPassword;
+
+    const emailRes = await this.sendTempPasswordEmail({
+      to: email,
+      nombre,
+      tempPassword: savedPassword,
+      tipo: 'CREACION',
+    });
+
+    if (!emailRes?.ok) {
       return {
-        ...res,
+        ok: false,
+        error:
+          'El usuario fue creado, pero falló el envío del correo con la contraseña temporal.',
+        partial: true,
         data: {
-          ...res.data,
-          emailSent: true,
+          ...(res.data || {}),
+          tempPassword: savedPassword,
+          emailSent: false,
         },
+        emailError: emailRes?.error || 'Error desconocido',
       };
     }
 
-    return res;
+    return {
+      ...res,
+      data: {
+        ...(res.data || {}),
+        tempPassword: savedPassword,
+        emailSent: true,
+      },
+    };
   }
 
   async forgotPassword(email: string) {
@@ -669,6 +716,10 @@ class GASService {
     return this.request('listUsuarios');
   }
 
+  async resetStoreData(tienda: string) {
+    return this.request('resetStoreData', { tienda });
+  }
+
   async checkDuplicate(codigo: string) {
     return this.request('checkDuplicado', { codigo });
   }
@@ -714,6 +765,9 @@ class GASService {
   }) {
     return this.request('getDetailedReport', params);
   }
+}
+
+export const gasService = new GASService();
 }
 
 export const gasService = new GASService();
