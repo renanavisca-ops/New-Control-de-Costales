@@ -768,6 +768,3 @@ class GASService {
 }
 
 export const gasService = new GASService();
-}
-
-export const gasService = new GASService();
