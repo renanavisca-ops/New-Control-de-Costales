@@ -398,6 +398,11 @@ class GASService {
             break;
           }
 
+          case 'listUsuarios': {
+            resolve({ ok: true, data: users });
+            break;
+          }
+
           case 'resetStoreData': {
             const tienda = String(data.tienda || '').trim();
 
