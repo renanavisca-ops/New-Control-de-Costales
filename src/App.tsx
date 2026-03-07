@@ -909,6 +909,10 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
   const [resetStoreId, setResetStoreId] = useState(stores[0]?.id_tienda || '');
 
   const limitedAdmin = user?.rol === Role.ADMIN_2;
+  const shopStats = metrics?.shopStats || [];
+  const totalReceived = shopStats.reduce((acc, s) => acc + (s.received || 0), 0);
+  const totalOpened = shopStats.reduce((acc, s) => acc + (s.opened || 0), 0);
+  const totalPending = shopStats.reduce((acc, s) => acc + (s.pending || 0), 0);
 
   const loadUsers = useCallback(() => {
     gasService.listUsuarios().then((res: any) => {
@@ -997,6 +1001,69 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
         <h2 className="text-[10px] font-black opacity-60 uppercase tracking-widest mb-1">Tu Rendimiento</h2>
         <p className="text-4xl font-black">{userPerf?.avgDiff?.toFixed(1) || '0.0'}</p>
         <p className="text-[10px] font-bold opacity-80 uppercase mt-1">DIFERENCIA PROMEDIO (Pzs)</p>
+      </div>
+
+      <div className="bg-white p-6 rounded-[32px] shadow-sm border border-gray-100 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-black text-gray-900">Resumen General</h3>
+          <span className="text-[10px] font-black text-indigo-500 uppercase tracking-widest">Todas las tiendas</span>
+        </div>
+
+        <div className="grid grid-cols-3 gap-3">
+          <div className="bg-blue-50 rounded-3xl p-4 text-center">
+            <p className="text-[10px] font-black uppercase tracking-widest text-blue-500">Recibidos</p>
+            <p className="text-3xl font-black text-blue-700 mt-2">{totalReceived}</p>
+          </div>
+          <div className="bg-orange-50 rounded-3xl p-4 text-center">
+            <p className="text-[10px] font-black uppercase tracking-widest text-orange-500">Abiertos</p>
+            <p className="text-3xl font-black text-orange-700 mt-2">{totalOpened}</p>
+          </div>
+          <div className="bg-emerald-50 rounded-3xl p-4 text-center">
+            <p className="text-[10px] font-black uppercase tracking-widest text-emerald-500">Stock</p>
+            <p className="text-3xl font-black text-emerald-700 mt-2">{totalPending}</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white p-6 rounded-[32px] shadow-sm border border-gray-100 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-black text-gray-900">Resumen por Tienda</h3>
+          <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{shopStats.length} tiendas</span>
+        </div>
+
+        {shopStats.length === 0 ? (
+          <div className="text-center p-10 text-gray-300 font-black border border-dashed rounded-[32px]">
+            Sin datos todavía
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {shopStats.map((shop) => (
+              <div key={shop.id} className="bg-gray-50 rounded-[28px] p-5 border border-gray-100">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <p className="text-sm font-black text-gray-900 uppercase">{shop.nombre}</p>
+                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{shop.id}</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="bg-blue-100 rounded-2xl p-3 text-center">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-blue-600">Recibidos</p>
+                    <p className="text-2xl font-black text-blue-800 mt-1">{shop.received}</p>
+                  </div>
+                  <div className="bg-orange-100 rounded-2xl p-3 text-center">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-orange-600">Abiertos</p>
+                    <p className="text-2xl font-black text-orange-800 mt-1">{shop.opened}</p>
+                  </div>
+                  <div className="bg-emerald-100 rounded-2xl p-3 text-center">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-emerald-600">Stock</p>
+                    <p className="text-2xl font-black text-emerald-800 mt-1">{shop.pending}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 gap-3">
