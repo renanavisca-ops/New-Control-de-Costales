@@ -561,17 +561,25 @@ const App: React.FC = () => {
     }
   };
 
-  const handleResetSystem = async () => {
+  const handleResetStoreData = async (tienda: string) => {
     if (!user || !isRootAdmin(user)) return showNotify('error', 'Sin permiso.');
-    if (!confirm('Esto reiniciará datos locales de stock, recibidos y aperturas. ¿Continuar?')) return;
+    if (!tienda) return showNotify('error', 'Debes seleccionar una tienda.');
+    if (!confirm(`Esto dejará en cero stock, recibidos y aperturas de la tienda ${tienda}. ¿Continuar?`)) return;
 
-    localStorage.removeItem('costales_stock');
-    localStorage.removeItem('costales_recibidos');
-    localStorage.removeItem('costales_abiertos');
-    localStorage.removeItem('pending_apertura_code');
-    setSessionScannedCodes(new Set());
-
-    showNotify('success', 'Sistema reseteado localmente.');
+    setLoading(true);
+    try {
+      const res: any = await gasService.resetStoreData(tienda);
+      if (res.ok) {
+        showNotify('success', `Tienda ${tienda} reiniciada.`);
+        await loadMetrics();
+      } else {
+        showNotify('error', res.error || 'No se pudo resetear la tienda.');
+      }
+    } catch {
+      showNotify('error', 'Error al resetear la tienda.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const enqueueAction = (action: Omit<OfflineAction, 'id' | 'timestamp' | 'status'>) => {
@@ -658,7 +666,7 @@ const App: React.FC = () => {
             onAddStore={handleAddStore}
             onUpdateStore={handleUpdateStore}
             onCreateManagedUser={handleCreateManagedUser}
-            onResetSystem={handleResetSystem}
+            onResetStoreData={handleResetStoreData}
             loading={loading}
           />
         )}
@@ -881,13 +889,14 @@ const RecepcionView = ({ user, isOnline, showNotify, enqueueAction, loadMetrics,
   );
 };
 
-const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateStore, onCreateManagedUser, onResetSystem, loading }: any) => {
+const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateStore, onCreateManagedUser, onResetStoreData, loading }: any) => {
   const [users, setUsers] = useState<User[]>([]);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [editingStore, setEditingStore] = useState<Store | null>(null);
   const [showStores, setShowStores] = useState(false);
   const [showNewStoreModal, setShowNewStoreModal] = useState(false);
   const [showNewUserModal, setShowNewUserModal] = useState(false);
+  const [showResetModal, setShowResetModal] = useState(false);
 
   const [newStoreName, setNewStoreName] = useState('');
   const [newStoreAddr, setNewStoreAddr] = useState('');
@@ -897,11 +906,16 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
   const [newUserStore, setNewUserStore] = useState(stores[0]?.id_tienda || '');
   const [newUserRole, setNewUserRole] = useState<Role>(getAssignableRoles(user)[0] as Role);
 
+  const [resetStoreId, setResetStoreId] = useState(stores[0]?.id_tienda || '');
+
   const limitedAdmin = user?.rol === Role.ADMIN_2;
 
   const loadUsers = useCallback(() => {
     gasService.listUsuarios().then((res: any) => {
-      if (res.ok) setUsers(res.data);
+      if (res.ok) setUsers(res.data || []);
+      else setUsers([]);
+    }).catch(() => {
+      setUsers([]);
     });
   }, []);
 
@@ -911,7 +925,8 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
 
   useEffect(() => {
     if (!newUserStore && stores[0]?.id_tienda) setNewUserStore(stores[0].id_tienda);
-  }, [stores, newUserStore]);
+    if (!resetStoreId && stores[0]?.id_tienda) setResetStoreId(stores[0].id_tienda);
+  }, [stores, newUserStore, resetStoreId]);
 
   useEffect(() => {
     const roles = getAssignableRoles(user);
@@ -968,7 +983,13 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
     setShowNewStoreModal(false);
   };
 
-  const userPerf = metrics?.userStats.find((u: any) => u.email === user?.email);
+  const handleResetSubmit = async () => {
+    if (!resetStoreId) return showNotify('error', 'Selecciona una tienda.');
+    await onResetStoreData(resetStoreId);
+    setShowResetModal(false);
+  };
+
+  const userPerf = metrics?.userStats?.find((u: any) => u.email === user?.email);
 
   return (
     <div className="space-y-8 pb-12">
@@ -995,10 +1016,10 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
 
         {isRootAdmin(user) && (
           <button
-            onClick={onResetSystem}
+            onClick={() => setShowResetModal(true)}
             className="w-full bg-red-600 text-white font-black py-4 rounded-[28px] text-xs uppercase tracking-widest shadow-xl"
           >
-            Resetear Sistema
+            Resetear Tienda
           </button>
         )}
       </div>
@@ -1145,6 +1166,43 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
               className="w-full bg-indigo-600 py-4 rounded-2xl font-black text-xs uppercase shadow-lg shadow-indigo-900/20 active:scale-95 transition-all disabled:opacity-50 text-white"
             >
               Añadir Tienda
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showResetModal && (
+        <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-4">
+          <div className="bg-white w-full max-w-md rounded-[40px] p-8 space-y-6 shadow-2xl">
+            <div className="flex justify-between items-center">
+              <h3 className="text-xl font-black text-red-600">Resetear Tienda</h3>
+              <button onClick={() => setShowResetModal(false)} className="text-gray-400 font-bold">Cerrar</button>
+            </div>
+
+            <div className="space-y-4">
+              <p className="text-sm text-gray-500">
+                Esto dejará en cero <strong>stock, recibidos y aperturas</strong> solo de la tienda seleccionada.
+              </p>
+
+              <select
+                value={resetStoreId}
+                onChange={(e) => setResetStoreId(e.target.value)}
+                className="w-full p-4 bg-gray-50 rounded-2xl font-bold"
+              >
+                {stores.map((s: Store) => (
+                  <option key={s.id_tienda} value={s.id_tienda}>
+                    {s.nombre}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <button
+              onClick={handleResetSubmit}
+              disabled={loading || !resetStoreId}
+              className="w-full bg-red-600 text-white font-black py-4 rounded-3xl shadow-xl disabled:opacity-50"
+            >
+              {loading ? 'RESETEANDO...' : 'CONFIRMAR RESET'}
             </button>
           </div>
         </div>
