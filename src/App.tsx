@@ -220,7 +220,7 @@ const ChangePasswordScreen = ({ loading, onSave, onLogout }: any) => {
   );
 };
 
-const AperturaScreen = ({ user, isOnline, showNotify, enqueueAction, loadMetrics }: any) => {
+const AperturaScreen = ({ user, isOnline, showNotify, enqueueAction, loadMetrics, onDataChanged }: any) => {
   const [code, setCode] = useState(localStorage.getItem('pending_apertura_code') || '');
   const [count, setCount] = useState('');
   const [selectedAperturaCategory, setSelectedAperturaCategory] = useState('');
@@ -286,6 +286,7 @@ const AperturaScreen = ({ user, isOnline, showNotify, enqueueAction, loadMetrics
         if (res.ok) {
           showNotify('success', `Costal ${costalInfo.codigo_barras} abierto.`);
           await loadMetrics();
+          await onDataChanged?.();
           resetOpenForm();
         } else {
           showNotify('error', res.error || 'Error al procesar.');
@@ -385,24 +386,30 @@ const App: React.FC = () => {
     };
   }, []);
 
-  useEffect(() => {
-    if (isOnline) {
-      gasService.getStores().then((res: any) => {
-        if (res.ok && res.data?.length > 0) {
-          const unique = (res.data as Store[]).filter((v, i, a) => a.findIndex(t => t.nombre.toLowerCase() === v.nombre.toLowerCase()) === i);
-          setStores(unique);
-          localStorage.setItem(STORES_CACHE_KEY, JSON.stringify(unique));
-        }
-      });
-      loadMetrics();
-    }
-  }, [isOnline]);
-
-  const loadMetrics = async () => {
-    if (!isOnline) return;
+  const loadMetrics = useCallback(async () => {
+    if (!navigator.onLine) return;
     const res: any = await gasService.getReports();
     if (res.ok) setMetrics(res.data);
-  };
+  }, []);
+
+  const loadStores = useCallback(async () => {
+    const res: any = await gasService.getStores();
+    if (res.ok && res.data?.length > 0) {
+      const unique = (res.data as Store[]).filter((v, i, a) => a.findIndex(t => t.nombre.toLowerCase() === v.nombre.toLowerCase()) === i);
+      setStores(unique);
+      localStorage.setItem(STORES_CACHE_KEY, JSON.stringify(unique));
+    }
+  }, []);
+
+  const refreshAdminData = useCallback(async () => {
+    await Promise.all([loadStores(), loadMetrics()]);
+  }, [loadStores, loadMetrics]);
+
+  useEffect(() => {
+    if (isOnline) {
+      refreshAdminData();
+    }
+  }, [isOnline, refreshAdminData]);
 
   const showNotify = (type: 'success' | 'error' | 'warning', msg: string) => {
     setNotification({ type, msg });
@@ -505,12 +512,33 @@ const App: React.FC = () => {
       });
 
       if (res.ok) {
+        await refreshAdminData();
         return { ok: true };
       }
 
       return { ok: false, error: res.error || 'No se pudo registrar.' };
     } catch {
       return { ok: false, error: 'Error al registrar.' };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteUser = async (target: User) => {
+    if (!user) return;
+    if (!confirm(`¿Eliminar al usuario ${target.nombre}?`)) return;
+
+    setLoading(true);
+    try {
+      const res: any = await gasService.deleteUsuario(target.email, user.email);
+      if (res.ok) {
+        showNotify('success', 'Usuario eliminado.');
+        await refreshAdminData();
+      } else {
+        showNotify('error', res.error || 'No se pudo eliminar el usuario.');
+      }
+    } catch {
+      showNotify('error', 'Error al eliminar usuario.');
     } finally {
       setLoading(false);
     }
@@ -529,9 +557,7 @@ const App: React.FC = () => {
     try {
       const res: any = await gasService.addStore(newStore);
       if (res.ok) {
-        const updatedStores = [...stores, newStore];
-        setStores(updatedStores);
-        localStorage.setItem(STORES_CACHE_KEY, JSON.stringify(updatedStores));
+        await refreshAdminData();
         showNotify('success', 'Tienda creada.');
       } else {
         showNotify('error', res.error || 'Error al crear.');
@@ -549,13 +575,33 @@ const App: React.FC = () => {
     try {
       const res: any = await gasService.updateTienda(store);
       if (res.ok) {
-        const updatedStores = stores.map(s => s.id_tienda === store.id_tienda ? store : s);
-        setStores(updatedStores);
-        localStorage.setItem(STORES_CACHE_KEY, JSON.stringify(updatedStores));
+        await refreshAdminData();
         showNotify('success', 'Tienda actualizada.');
+      } else {
+        showNotify('error', res.error || 'No se pudo actualizar la tienda.');
       }
     } catch {
       showNotify('error', 'Error al actualizar.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteStore = async (store: Store) => {
+    if (!user || !isRootAdmin(user)) return showNotify('error', 'Sin permiso.');
+    if (!confirm(`¿Eliminar la tienda ${store.nombre}?`)) return;
+
+    setLoading(true);
+    try {
+      const res: any = await gasService.deleteTienda(store.id_tienda);
+      if (res.ok) {
+        showNotify('success', 'Tienda eliminada.');
+        await refreshAdminData();
+      } else {
+        showNotify('error', res.error || 'No se pudo eliminar la tienda.');
+      }
+    } catch {
+      showNotify('error', 'Error al eliminar tienda.');
     } finally {
       setLoading(false);
     }
@@ -571,7 +617,7 @@ const App: React.FC = () => {
       const res: any = await gasService.resetStoreData(tienda);
       if (res.ok) {
         showNotify('success', `Tienda ${tienda} reiniciada.`);
-        await loadMetrics();
+        await refreshAdminData();
       } else {
         showNotify('error', res.error || 'No se pudo resetear la tienda.');
       }
@@ -654,9 +700,31 @@ const App: React.FC = () => {
           />
         )}
 
-        {currentScreen === 'APERTURA' && <AperturaScreen user={user} isOnline={isOnline} showNotify={showNotify} enqueueAction={enqueueAction} loadMetrics={loadMetrics} />}
+        {currentScreen === 'APERTURA' && (
+          <AperturaScreen
+            user={user}
+            isOnline={isOnline}
+            showNotify={showNotify}
+            enqueueAction={enqueueAction}
+            loadMetrics={loadMetrics}
+            onDataChanged={refreshAdminData}
+          />
+        )}
         {currentScreen === 'EXISTENCIAS' && <ExistenciasView user={user} onOpen={(code: string) => { localStorage.setItem('pending_apertura_code', code); setCurrentScreen('APERTURA'); }} />}
-        {currentScreen === 'RECEPCION' && <RecepcionView user={user} isOnline={isOnline} showNotify={showNotify} enqueueAction={enqueueAction} loadMetrics={loadMetrics} selectedCategory={selectedCategory} setSelectedCategory={(cat: string) => { setSelectedCategory(cat); localStorage.setItem('cc_last_category', cat); }} sessionScannedCodes={sessionScannedCodes} setSessionScannedCodes={setSessionScannedCodes} />}
+        {currentScreen === 'RECEPCION' && (
+          <RecepcionView
+            user={user}
+            isOnline={isOnline}
+            showNotify={showNotify}
+            enqueueAction={enqueueAction}
+            loadMetrics={loadMetrics}
+            onDataChanged={refreshAdminData}
+            selectedCategory={selectedCategory}
+            setSelectedCategory={(cat: string) => { setSelectedCategory(cat); localStorage.setItem('cc_last_category', cat); }}
+            sessionScannedCodes={sessionScannedCodes}
+            setSessionScannedCodes={setSessionScannedCodes}
+          />
+        )}
         {currentScreen === 'METRICAS' && canAccessAdmin(user) && (
           <MetricasView
             metrics={metrics}
@@ -665,7 +733,9 @@ const App: React.FC = () => {
             showNotify={showNotify}
             onAddStore={handleAddStore}
             onUpdateStore={handleUpdateStore}
+            onDeleteStore={handleDeleteStore}
             onCreateManagedUser={handleCreateManagedUser}
+            onDeleteUser={handleDeleteUser}
             onResetStoreData={handleResetStoreData}
             loading={loading}
           />
@@ -838,7 +908,7 @@ const ExistenciasView = ({ user, onOpen }: any) => {
   );
 };
 
-const RecepcionView = ({ user, isOnline, showNotify, enqueueAction, loadMetrics, selectedCategory, setSelectedCategory, sessionScannedCodes, setSessionScannedCodes }: any) => {
+const RecepcionView = ({ user, isOnline, showNotify, enqueueAction, loadMetrics, onDataChanged, selectedCategory, setSelectedCategory, sessionScannedCodes, setSessionScannedCodes }: any) => {
   const onScanCode = async (code: string) => {
     const codeClean = code.trim();
     if (!codeClean) return;
@@ -866,7 +936,8 @@ const RecepcionView = ({ user, isOnline, showNotify, enqueueAction, loadMetrics,
       const res: any = await gasService.addCostal(newCostal);
       if (res.ok) {
         showNotify('success', `RECIBIDO: ${codeClean}`);
-        loadMetrics();
+        await loadMetrics();
+        await onDataChanged?.();
       }
     } else {
       enqueueAction({ type: 'ADD_COSTAL', payload: newCostal });
@@ -889,7 +960,7 @@ const RecepcionView = ({ user, isOnline, showNotify, enqueueAction, loadMetrics,
   );
 };
 
-const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateStore, onCreateManagedUser, onResetStoreData, loading }: any) => {
+const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateStore, onDeleteStore, onCreateManagedUser, onDeleteUser, onResetStoreData, loading }: any) => {
   const [users, setUsers] = useState<User[]>([]);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [editingStore, setEditingStore] = useState<Store | null>(null);
@@ -907,12 +978,17 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
   const [newUserRole, setNewUserRole] = useState<Role>(getAssignableRoles(user)[0] as Role);
 
   const [resetStoreId, setResetStoreId] = useState(stores[0]?.id_tienda || '');
+  const [selectedShopId, setSelectedShopId] = useState<'ALL' | string>('ALL');
 
   const limitedAdmin = user?.rol === Role.ADMIN_2;
   const shopStats = metrics?.shopStats || [];
   const totalReceived = shopStats.reduce((acc, s) => acc + (s.received || 0), 0);
   const totalOpened = shopStats.reduce((acc, s) => acc + (s.opened || 0), 0);
   const totalPending = shopStats.reduce((acc, s) => acc + (s.pending || 0), 0);
+  const selectedShop =
+    selectedShopId === 'ALL'
+      ? null
+      : shopStats.find((s) => s.id === selectedShopId) || null;
 
   const loadUsers = useCallback(() => {
     gasService.listUsuarios().then((res: any) => {
@@ -937,6 +1013,12 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
     if (!roles.includes(newUserRole)) setNewUserRole(roles[0] as Role);
   }, [user, newUserRole]);
 
+  useEffect(() => {
+    if (selectedShopId !== 'ALL' && !shopStats.some((s) => s.id === selectedShopId)) {
+      setSelectedShopId('ALL');
+    }
+  }, [selectedShopId, shopStats]);
+
   const visibleUsers = useMemo(() => {
     if (!limitedAdmin) return users;
     return users.filter((u) => u.email.toLowerCase() !== ROOT_ADMIN_EMAIL && u.rol !== Role.ADMIN && u.rol !== Role.ADMIN_2);
@@ -954,6 +1036,7 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
       showNotify('success', 'Usuario actualizado');
       setUsers(prev => prev.map(u => u.email === editingUser.email ? editingUser : u));
       setEditingUser(null);
+      loadUsers();
     } else {
       showNotify('error', res.error || 'No se pudo actualizar.');
     }
@@ -1026,42 +1109,64 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
       </div>
 
       <div className="bg-white p-6 rounded-[32px] shadow-sm border border-gray-100 space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <h3 className="text-lg font-black text-gray-900">Resumen por Tienda</h3>
-          <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{shopStats.length} tiendas</span>
+          <select
+            value={selectedShopId}
+            onChange={(e) => setSelectedShopId(e.target.value)}
+            className="bg-gray-50 rounded-2xl px-4 py-3 font-bold text-sm outline-none"
+          >
+            <option value="ALL">General</option>
+            {shopStats.map((shop) => (
+              <option key={shop.id} value={shop.id}>
+                {shop.nombre}
+              </option>
+            ))}
+          </select>
         </div>
 
-        {shopStats.length === 0 ? (
-          <div className="text-center p-10 text-gray-300 font-black border border-dashed rounded-[32px]">
-            Sin datos todavía
+        {selectedShopId === 'ALL' ? (
+          <div className="grid grid-cols-3 gap-3">
+            <div className="bg-blue-50 rounded-3xl p-4 text-center">
+              <p className="text-[10px] font-black uppercase tracking-widest text-blue-500">Recibidos</p>
+              <p className="text-3xl font-black text-blue-700 mt-2">{totalReceived}</p>
+            </div>
+            <div className="bg-orange-50 rounded-3xl p-4 text-center">
+              <p className="text-[10px] font-black uppercase tracking-widest text-orange-500">Abiertos</p>
+              <p className="text-3xl font-black text-orange-700 mt-2">{totalOpened}</p>
+            </div>
+            <div className="bg-emerald-50 rounded-3xl p-4 text-center">
+              <p className="text-[10px] font-black uppercase tracking-widest text-emerald-500">Stock</p>
+              <p className="text-3xl font-black text-emerald-700 mt-2">{totalPending}</p>
+            </div>
           </div>
-        ) : (
-          <div className="space-y-4">
-            {shopStats.map((shop) => (
-              <div key={shop.id} className="bg-gray-50 rounded-[28px] p-5 border border-gray-100">
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <p className="text-sm font-black text-gray-900 uppercase">{shop.nombre}</p>
-                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{shop.id}</p>
-                  </div>
-                </div>
+        ) : selectedShop ? (
+          <div className="space-y-3">
+            <div className="bg-gray-50 rounded-[28px] p-5 border border-gray-100">
+              <div className="mb-4">
+                <p className="text-sm font-black text-gray-900 uppercase">{selectedShop.nombre}</p>
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{selectedShop.id}</p>
+              </div>
 
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="bg-blue-100 rounded-2xl p-3 text-center">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-blue-600">Recibidos</p>
-                    <p className="text-2xl font-black text-blue-800 mt-1">{shop.received}</p>
-                  </div>
-                  <div className="bg-orange-100 rounded-2xl p-3 text-center">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-orange-600">Abiertos</p>
-                    <p className="text-2xl font-black text-orange-800 mt-1">{shop.opened}</p>
-                  </div>
-                  <div className="bg-emerald-100 rounded-2xl p-3 text-center">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-emerald-600">Stock</p>
-                    <p className="text-2xl font-black text-emerald-800 mt-1">{shop.pending}</p>
-                  </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-blue-100 rounded-2xl p-3 text-center">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-blue-600">Recibidos</p>
+                  <p className="text-2xl font-black text-blue-800 mt-1">{selectedShop.received}</p>
+                </div>
+                <div className="bg-orange-100 rounded-2xl p-3 text-center">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-orange-600">Abiertos</p>
+                  <p className="text-2xl font-black text-orange-800 mt-1">{selectedShop.opened}</p>
+                </div>
+                <div className="bg-emerald-100 rounded-2xl p-3 text-center">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-emerald-600">Stock</p>
+                  <p className="text-2xl font-black text-emerald-800 mt-1">{selectedShop.pending}</p>
                 </div>
               </div>
-            ))}
+            </div>
+          </div>
+        ) : (
+          <div className="text-center p-10 text-gray-300 font-black border border-dashed rounded-[32px]">
+            Sin datos todavía
           </div>
         )}
       </div>
@@ -1107,11 +1212,24 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
                   <span className="bg-gray-50 text-gray-500 text-[8px] px-2 py-0.5 rounded-full font-black uppercase">{stores.find((s: Store) => s.id_tienda === u.tienda)?.nombre || u.tienda}</span>
                 </div>
               </div>
-              {canManageUser(user, u) && (
-                <button onClick={() => setEditingUser({ ...u })} className="bg-gray-100 p-3 rounded-2xl hover:bg-indigo-600 hover:text-white transition-all text-gray-400 group-hover:scale-105 active:scale-95">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-                </button>
-              )}
+
+              <div className="flex items-center gap-2">
+                {canManageUser(user, u) && (
+                  <>
+                    <button onClick={() => setEditingUser({ ...u })} className="bg-gray-100 p-3 rounded-2xl hover:bg-indigo-600 hover:text-white transition-all text-gray-400 group-hover:scale-105 active:scale-95">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                    </button>
+                    {!isRootAdmin(u) && (
+                      <button
+                        onClick={() => onDeleteUser(u)}
+                        className="bg-red-50 text-red-600 p-3 rounded-2xl hover:bg-red-600 hover:text-white transition-all"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3m-7 0h8" /></svg>
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
             </div>
           ))}
         </div>
@@ -1136,9 +1254,21 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
                   </div>
                   <p className="text-[10px] font-bold text-gray-400 mt-1 uppercase leading-tight italic">{s.direccion || 'Sin dirección registrada'}</p>
                 </div>
-                <button onClick={() => setEditingStore({ ...s })} className="bg-gray-100 p-3 rounded-2xl hover:bg-indigo-600 hover:text-white transition-all text-gray-400">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" /></svg>
-                </button>
+
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setEditingStore({ ...s })} className="bg-gray-100 p-3 rounded-2xl hover:bg-indigo-600 hover:text-white transition-all text-gray-400">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" /></svg>
+                  </button>
+
+                  {isRootAdmin(user) && s.id_tienda !== 'T01' && (
+                    <button
+                      onClick={() => onDeleteStore(s)}
+                      className="bg-red-50 text-red-600 p-3 rounded-2xl hover:bg-red-600 hover:text-white transition-all"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3m-7 0h8" /></svg>
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
