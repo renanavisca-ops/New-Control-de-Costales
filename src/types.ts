@@ -46,7 +46,7 @@ export interface Apertura {
 
 export interface OfflineAction {
   id: string;
-  type: 'ADD_COSTAL' | 'OPEN_COSTAL' | 'TRANSFER_COSTAL';
+  type: 'ADD_COSTAL' | 'OPEN_COSTAL' | 'TRANSFER_COSTAL' | 'SAVE_INVENTORY_COUNT';
   payload: any;
   timestamp: number;
   status: 'pending' | 'syncing' | 'error';
