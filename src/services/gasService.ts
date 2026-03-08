@@ -1,4 +1,4 @@
-import { Costal, Apertura, User, Role, CostalStatus, Store } from '../types';
+import { Costal, Apertura, User, Role, CostalStatus, Store, InventoryCount } from '../types';
 
 const GAS_URL =
   import.meta.env.VITE_GAS_URL ||
@@ -9,6 +9,7 @@ const MOCK_DB_STORES = 'cc_mock_db_stores';
 const MOCK_DB_APERTURAS = 'cc_mock_db_aperturas';
 const MOCK_DB_USERS = 'cc_mock_db_users';
 const MOCK_DB_AUTH = 'cc_mock_db_auth';
+const MOCK_DB_INVENTORY_COUNTS = 'cc_mock_db_inventory_counts';
 
 const ROOT_ADMIN_EMAIL = (
   import.meta.env.VITE_ROOT_ADMIN_EMAIL || 'curiosidades2526@gmail.com'
@@ -170,6 +171,7 @@ class GASService {
       setTimeout(() => {
         const costales = this.getMockData<Costal>(MOCK_DB_COSTALES);
         const aperturas = this.getMockData<Apertura>(MOCK_DB_APERTURAS);
+        const inventoryCounts = this.getMockData<InventoryCount>(MOCK_DB_INVENTORY_COUNTS);
         const stores = this.getMockData<Store>(MOCK_DB_STORES);
         const users = this.ensureRootAdmin(this.getMockData<User>(MOCK_DB_USERS));
 
@@ -656,6 +658,25 @@ class GASService {
             break;
           }
 
+          case 'saveInventoryCount': {
+            const payload = data as InventoryCount;
+            const exists = inventoryCounts.some((row) => row.id_conteo === payload.id_conteo);
+            if (exists) {
+              resolve({ ok: false, error: 'Ese conteo ya fue guardado.' });
+              break;
+            }
+            this.saveMockData(MOCK_DB_INVENTORY_COUNTS, [payload, ...inventoryCounts]);
+            resolve({ ok: true, data: payload });
+            break;
+          }
+
+          case 'listInventoryCounts': {
+            const tienda = String(data.tienda || '').trim();
+            const filtered = tienda ? inventoryCounts.filter((row) => row.tienda === tienda) : inventoryCounts;
+            resolve({ ok: true, data: filtered });
+            break;
+          }
+
           case 'getDetailedReport': {
             const { type, dateFrom, dateTo, tienda, usuario } = data;
             const start = new Date(dateFrom).getTime();
@@ -835,6 +856,14 @@ class GASService {
     return this.request('trasladarCostal', { codigo, tiendaDestino, usuario });
   }
 
+  async saveInventoryCount(payload: InventoryCount) {
+    return this.request('saveInventoryCount', payload);
+  }
+
+  async listInventoryCounts(tienda: string) {
+    return this.request('listInventoryCounts', { tienda });
+  }
+
   async getInventory(tienda: string) {
     return this.request('listExistencias', { tienda });
   }
@@ -871,3 +900,4 @@ class GASService {
 }
 
 export const gasService = new GASService();
+
