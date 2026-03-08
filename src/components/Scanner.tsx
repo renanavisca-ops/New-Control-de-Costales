@@ -4,13 +4,11 @@ import { Html5Qrcode } from "html5-qrcode";
 interface ScannerProps {
   onScan: (code: string) => void;
   placeholder?: string;
-  allowManual?: boolean;
 }
 
 const Scanner: React.FC<ScannerProps> = ({
   onScan,
-  placeholder = "Escanea código...",
-  allowManual = true
+  placeholder = "Escanea código..."
 }) => {
   const [manualCode, setManualCode] = useState("");
   const [isCameraActive, setIsCameraActive] = useState(false);
@@ -104,7 +102,6 @@ const Scanner: React.FC<ScannerProps> = ({
       </div>
 
       <div className="flex flex-col gap-2">
-        {allowManual && (
         <form onSubmit={handleManualSubmit} className="relative flex gap-2">
           <input
             ref={inputRef}
@@ -122,7 +119,6 @@ const Scanner: React.FC<ScannerProps> = ({
             OK
           </button>
         </form>
-        )}
 
         <button
           onClick={() => (isCameraActive ? stopCamera() : startCamera())}
@@ -138,8 +134,5 @@ const Scanner: React.FC<ScannerProps> = ({
     </div>
   );
 };
-
-export default Scanner;
-
 
 export default Scanner;
