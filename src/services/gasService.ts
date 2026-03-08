@@ -7,9 +7,9 @@ const GAS_URL =
 const MOCK_DB_COSTALES = 'cc_mock_db_costales';
 const MOCK_DB_STORES = 'cc_mock_db_stores';
 const MOCK_DB_APERTURAS = 'cc_mock_db_aperturas';
+const MOCK_DB_INVENTARIO = 'cc_mock_db_inventario';
 const MOCK_DB_USERS = 'cc_mock_db_users';
 const MOCK_DB_AUTH = 'cc_mock_db_auth';
-const MOCK_DB_INVENTORY_COUNTS = 'cc_mock_db_inventory_counts';
 
 const ROOT_ADMIN_EMAIL = (
   import.meta.env.VITE_ROOT_ADMIN_EMAIL || 'curiosidades2526@gmail.com'
@@ -171,6 +171,7 @@ class GASService {
       setTimeout(() => {
         const costales = this.getMockData<Costal>(MOCK_DB_COSTALES);
         const aperturas = this.getMockData<Apertura>(MOCK_DB_APERTURAS);
+        const inventoryCounts = this.getInventoryCounts();
         const stores = this.getMockData<Store>(MOCK_DB_STORES);
         const users = this.ensureRootAdmin(this.getMockData<User>(MOCK_DB_USERS));
 
@@ -465,9 +466,11 @@ class GASService {
 
             const filteredCostales = costales.filter((c) => c.tienda !== tienda);
             const filteredAperturas = aperturas.filter((a) => a.tienda !== tienda);
+            const filteredInventoryCounts = inventoryCounts.filter((i) => i.tienda !== tienda);
 
             this.saveMockData(MOCK_DB_COSTALES, filteredCostales);
             this.saveMockData(MOCK_DB_APERTURAS, filteredAperturas);
+            this.saveInventoryCounts(filteredInventoryCounts);
 
             resolve({
               ok: true,
@@ -617,6 +620,37 @@ class GASService {
             break;
           }
 
+          case 'addInventoryCount': {
+            const incoming = data as InventoryCount;
+            if (!incoming?.codigo_barras || !incoming?.tienda) {
+              resolve({ ok: false, error: 'Datos de inventario incompletos.' });
+              break;
+            }
+
+            const baseCostal = costales.find((c) => c.codigo_barras === incoming.codigo_barras);
+            if (!baseCostal) {
+              resolve({ ok: false, error: 'El costal no existe en el sistema.' });
+              break;
+            }
+
+            const existingIndex = inventoryCounts.findIndex((i) => i.codigo_barras === incoming.codigo_barras && i.tienda === incoming.tienda);
+            const next = [...inventoryCounts];
+            if (existingIndex >= 0) next[existingIndex] = incoming;
+            else next.push(incoming);
+            this.saveInventoryCounts(next);
+            resolve({ ok: true, data: incoming });
+            break;
+          }
+
+          case 'listInventoryCounts': {
+            let dataRows = [...inventoryCounts];
+            if (String(data.tienda || 'ALL') !== 'ALL') {
+              dataRows = dataRows.filter((i) => i.tienda === data.tienda);
+            }
+            resolve({ ok: true, data: dataRows });
+            break;
+          }
+
           case 'reportes': {
             const totalAperturas = aperturas.length;
             const avgGlobalDiff =
@@ -658,119 +692,7 @@ class GASService {
           }
 
           case 'getDetailedReport': {
-            const { type, dateFrom, dateTo, tienda, usuario } = data;
-            const start = new Date(dateFrom).getTime();
-            const end = new Date(dateTo).getTime() + 24 * 60 * 60 * 1000;
-            let filtered: any[] = [];
-
-            if (type === 'STOCK') {
-              filtered = costales.filter((c) => c.estado !== CostalStatus.ABIERTO);
-            } else if (type === 'RECIBIDOS') {
-              filtered = costales.filter((c) => {
-                const date = new Date(c.fecha_recepcion).getTime();
-                return date >= start && date <= end;
-              });
-            } else if (type === 'ABIERTOS') {
-              filtered = aperturas.filter((a) => {
-                const date = new Date(a.fecha_apertura).getTime();
-                return date >= start && date <= end;
-              });
-            }
-
-            if (tienda !== 'ALL') {
-              filtered = filtered.filter((item) => item.tienda === tienda);
-            }
-
-            if (usuario !== 'ALL') {
-              filtered = filtered.filter(
-                (item) =>
-                  item.usuario_recibe === usuario || item.usuario_apertura === usuario
-              );
-            }
-
-            resolve({ ok: true, data: filtered });
-            break;
-          }
-
-          case 'saveInventoryCount': {
-            const incoming = data as InventoryCount;
-            if (!incoming?.codigo_barras || !incoming?.tienda || !incoming?.fecha_corte) {
-              resolve({ ok: false, error: 'Conteo inválido.' });
-              break;
-            }
-
-            const inventoryCounts = this.getMockData<InventoryCount>(MOCK_DB_INVENTORY_COUNTS);
-            const next = inventoryCounts.filter(
-              (item) =>
-                !(
-                  item.codigo_barras === incoming.codigo_barras &&
-                  item.tienda === incoming.tienda &&
-                  item.fecha_corte === incoming.fecha_corte
-                )
-            );
-
-            next.push(incoming);
-            this.saveMockData(MOCK_DB_INVENTORY_COUNTS, next);
-            resolve({ ok: true, data: incoming });
-            break;
-          }
-
-          case 'getInventoryCounts': {
-            const tienda = String(data.tienda || '').trim();
-            const fecha = String(data.fecha_corte || '').trim();
-            const inventoryCounts = this.getMockData<InventoryCount>(MOCK_DB_INVENTORY_COUNTS);
-            const filtered = inventoryCounts.filter(
-              (item) =>
-                (!tienda || item.tienda === tienda) &&
-                (!fecha || item.fecha_corte === fecha)
-            );
-            resolve({ ok: true, data: filtered });
-            break;
-          }
-
-          case 'getInventoryComparisonReport': {
-            const tienda = String(data.tienda || 'ALL').trim();
-            const fecha = String(data.dateTo || data.dateFrom || '').trim();
-            const inventoryCounts = this.getMockData<InventoryCount>(MOCK_DB_INVENTORY_COUNTS);
-            const visibleCostales = costales.filter(
-              (item) =>
-                item.estado !== CostalStatus.ABIERTO &&
-                (tienda === 'ALL' || item.tienda === tienda)
-            );
-
-            const countsByKey = new Map(
-              inventoryCounts
-                .filter(
-                  (item) =>
-                    (!fecha || item.fecha_corte === fecha) &&
-                    (tienda === 'ALL' || item.tienda === tienda)
-                )
-                .map((item) => [`${item.tienda}::${item.codigo_barras}`, item])
-            );
-
-            const merged = visibleCostales
-              .map((costal) => {
-                const found = countsByKey.get(`${costal.tienda}::${costal.codigo_barras}`);
-                return {
-                  id_conteo: found?.id_conteo || `${costal.tienda}-${fecha}-${costal.codigo_barras}`,
-                  codigo_barras: costal.codigo_barras,
-                  categoria: costal.categoria,
-                  tienda: costal.tienda,
-                  fecha_conteo: found?.fecha_conteo || '',
-                  fecha_corte: found?.fecha_corte || fecha,
-                  usuario_conteo: found?.usuario_conteo || '',
-                  stock_piezas: Number(costal.piezas_asignadas || 0),
-                  inventario_fisico: Number(found?.inventario_fisico ?? 0),
-                  diferencia: Number(found ? found.diferencia : (0 - Number(costal.piezas_asignadas || 0))),
-                };
-              });
-
-            const finalData =
-              data.type === 'DIFERENCIAS'
-                ? merged.filter((item) => item.diferencia !== 0 || item.inventario_fisico !== item.stock_piezas)
-                : merged;
-
-            resolve({ ok: true, data: finalData });
+            resolve(this.buildDetailedReport(data, costales, aperturas, inventoryCounts, stores));
             break;
           }
 
@@ -942,6 +864,14 @@ class GASService {
     return this.request('deleteTienda', { id_tienda });
   }
 
+  async saveInventoryCount(inventoryCount: InventoryCount) {
+    return this.request('addInventoryCount', inventoryCount);
+  }
+
+  async listInventoryCounts(tienda: string = 'ALL') {
+    return this.request('listInventoryCounts', { tienda });
+  }
+
   async getDetailedReport(params: {
     type: string;
     dateFrom: string;
@@ -951,25 +881,8 @@ class GASService {
   }) {
     return this.request('getDetailedReport', params);
   }
-
-  async saveInventoryCount(count: InventoryCount) {
-    return this.request('saveInventoryCount', count);
-  }
-
-  async getInventoryCounts(tienda: string, fecha_corte: string) {
-    return this.request('getInventoryCounts', { tienda, fecha_corte });
-  }
-
-  async getInventoryComparisonReport(params: {
-    type: 'INVENTARIO' | 'DIFERENCIAS';
-    dateFrom: string;
-    dateTo: string;
-    tienda: string;
-    usuario: string;
-  }) {
-    return this.request('getInventoryComparisonReport', params);
-  }
 }
 
 export const gasService = new GASService();
+
 
