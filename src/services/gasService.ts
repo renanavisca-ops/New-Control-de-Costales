@@ -1,4 +1,4 @@
-import { Costal, Apertura, User, Role, CostalStatus, Store, InventoryCount } from '../types';
+import { Costal, Apertura, User, Role, CostalStatus, Store } from '../types';
 
 const GAS_URL =
   import.meta.env.VITE_GAS_URL ||
@@ -7,7 +7,6 @@ const GAS_URL =
 const MOCK_DB_COSTALES = 'cc_mock_db_costales';
 const MOCK_DB_STORES = 'cc_mock_db_stores';
 const MOCK_DB_APERTURAS = 'cc_mock_db_aperturas';
-const MOCK_DB_INVENTARIO = 'cc_mock_db_inventario';
 const MOCK_DB_USERS = 'cc_mock_db_users';
 const MOCK_DB_AUTH = 'cc_mock_db_auth';
 
@@ -35,18 +34,33 @@ class GASService {
       return this.mockResponse(action, data);
     }
 
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 15000);
+
     try {
       const response = await fetch(GAS_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, ...data }),
+        signal: controller.signal,
       });
 
-      const json = await response.json();
-      return json;
-    } catch (error) {
+      const raw = await response.text();
+
+      try {
+        return raw ? JSON.parse(raw) : { ok: false, error: 'Respuesta vacía del servidor.' };
+      } catch (parseError) {
+        console.error('GAS response parse failed:', parseError, raw);
+        return { ok: false, error: 'Respuesta inválida del servidor.' };
+      }
+    } catch (error: any) {
       console.error('GAS request failed:', error);
+      if (error?.name === 'AbortError') {
+        return { ok: false, error: 'El servidor tardó demasiado en responder.' };
+      }
       return { ok: false, error: 'Error de conexión con el servidor' };
+    } finally {
+      window.clearTimeout(timeout);
     }
   }
 
@@ -148,21 +162,30 @@ class GASService {
     tempPassword: string;
     tipo: 'CREACION' | 'RECUPERACION';
   }) {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 12000);
+
     try {
       const response = await fetch('/api/send-temp-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
+        signal: controller.signal,
       });
 
-      const json = await response.json();
-      return json;
-    } catch (error) {
+      const raw = await response.text();
+      return raw ? JSON.parse(raw) : { ok: false, error: 'Respuesta vacía del servicio de correo.' };
+    } catch (error: any) {
       console.error('sendTempPasswordEmail failed:', error);
       return {
         ok: false,
-        error: 'No se pudo contactar el servicio de correo.',
+        error:
+          error?.name === 'AbortError'
+            ? 'El servicio de correo tardó demasiado en responder.'
+            : 'No se pudo contactar el servicio de correo.',
       };
+    } finally {
+      window.clearTimeout(timeout);
     }
   }
 
@@ -171,7 +194,6 @@ class GASService {
       setTimeout(() => {
         const costales = this.getMockData<Costal>(MOCK_DB_COSTALES);
         const aperturas = this.getMockData<Apertura>(MOCK_DB_APERTURAS);
-        const inventoryCounts = this.getInventoryCounts();
         const stores = this.getMockData<Store>(MOCK_DB_STORES);
         const users = this.ensureRootAdmin(this.getMockData<User>(MOCK_DB_USERS));
 
@@ -466,11 +488,9 @@ class GASService {
 
             const filteredCostales = costales.filter((c) => c.tienda !== tienda);
             const filteredAperturas = aperturas.filter((a) => a.tienda !== tienda);
-            const filteredInventoryCounts = inventoryCounts.filter((i) => i.tienda !== tienda);
 
             this.saveMockData(MOCK_DB_COSTALES, filteredCostales);
             this.saveMockData(MOCK_DB_APERTURAS, filteredAperturas);
-            this.saveInventoryCounts(filteredInventoryCounts);
 
             resolve({
               ok: true,
@@ -620,37 +640,6 @@ class GASService {
             break;
           }
 
-          case 'addInventoryCount': {
-            const incoming = data as InventoryCount;
-            if (!incoming?.codigo_barras || !incoming?.tienda) {
-              resolve({ ok: false, error: 'Datos de inventario incompletos.' });
-              break;
-            }
-
-            const baseCostal = costales.find((c) => c.codigo_barras === incoming.codigo_barras);
-            if (!baseCostal) {
-              resolve({ ok: false, error: 'El costal no existe en el sistema.' });
-              break;
-            }
-
-            const existingIndex = inventoryCounts.findIndex((i) => i.codigo_barras === incoming.codigo_barras && i.tienda === incoming.tienda);
-            const next = [...inventoryCounts];
-            if (existingIndex >= 0) next[existingIndex] = incoming;
-            else next.push(incoming);
-            this.saveInventoryCounts(next);
-            resolve({ ok: true, data: incoming });
-            break;
-          }
-
-          case 'listInventoryCounts': {
-            let dataRows = [...inventoryCounts];
-            if (String(data.tienda || 'ALL') !== 'ALL') {
-              dataRows = dataRows.filter((i) => i.tienda === data.tienda);
-            }
-            resolve({ ok: true, data: dataRows });
-            break;
-          }
-
           case 'reportes': {
             const totalAperturas = aperturas.length;
             const avgGlobalDiff =
@@ -692,7 +681,37 @@ class GASService {
           }
 
           case 'getDetailedReport': {
-            resolve(this.buildDetailedReport(data, costales, aperturas, inventoryCounts, stores));
+            const { type, dateFrom, dateTo, tienda, usuario } = data;
+            const start = new Date(dateFrom).getTime();
+            const end = new Date(dateTo).getTime() + 24 * 60 * 60 * 1000;
+            let filtered: any[] = [];
+
+            if (type === 'STOCK') {
+              filtered = costales.filter((c) => c.estado !== CostalStatus.ABIERTO);
+            } else if (type === 'RECIBIDOS') {
+              filtered = costales.filter((c) => {
+                const date = new Date(c.fecha_recepcion).getTime();
+                return date >= start && date <= end;
+              });
+            } else if (type === 'ABIERTOS') {
+              filtered = aperturas.filter((a) => {
+                const date = new Date(a.fecha_apertura).getTime();
+                return date >= start && date <= end;
+              });
+            }
+
+            if (tienda !== 'ALL') {
+              filtered = filtered.filter((item) => item.tienda === tienda);
+            }
+
+            if (usuario !== 'ALL') {
+              filtered = filtered.filter(
+                (item) =>
+                  item.usuario_recibe === usuario || item.usuario_apertura === usuario
+              );
+            }
+
+            resolve({ ok: true, data: filtered });
             break;
           }
 
@@ -745,10 +764,10 @@ class GASService {
 
     if (!emailRes?.ok) {
       return {
-        ok: false,
-        error:
-          'El usuario fue creado, pero falló el envío del correo con la contraseña temporal.',
+        ok: true,
         partial: true,
+        warning:
+          'El usuario fue creado, pero falló el envío del correo con la contraseña temporal.',
         data: {
           ...(res.data || {}),
           tempPassword: savedPassword,
@@ -864,14 +883,6 @@ class GASService {
     return this.request('deleteTienda', { id_tienda });
   }
 
-  async saveInventoryCount(inventoryCount: InventoryCount) {
-    return this.request('addInventoryCount', inventoryCount);
-  }
-
-  async listInventoryCounts(tienda: string = 'ALL') {
-    return this.request('listInventoryCounts', { tienda });
-  }
-
   async getDetailedReport(params: {
     type: string;
     dateFrom: string;
@@ -884,5 +895,6 @@ class GASService {
 }
 
 export const gasService = new GASService();
+
 
 
