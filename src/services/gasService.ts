@@ -1,9 +1,8 @@
 import { Costal, Apertura, User, Role, CostalStatus, Store } from '../types';
-import { appConfig, BackendMode } from '../config/appConfig';
 
-const GAS_URL = appConfig.gasUrl;
-const BACKEND_MODE: BackendMode = appConfig.backendMode;
-const REQUEST_TIMEOUT_MS = 15000;
+const GAS_URL =
+  import.meta.env.VITE_GAS_URL ||
+  'https://script.google.com/macros/s/REPLACE_WITH_YOUR_DEPLOY_ID/exec';
 
 const MOCK_DB_COSTALES = 'cc_mock_db_costales';
 const MOCK_DB_STORES = 'cc_mock_db_stores';
@@ -11,9 +10,12 @@ const MOCK_DB_APERTURAS = 'cc_mock_db_aperturas';
 const MOCK_DB_USERS = 'cc_mock_db_users';
 const MOCK_DB_AUTH = 'cc_mock_db_auth';
 
-const ROOT_ADMIN_EMAIL = appConfig.rootAdminEmail;
+const ROOT_ADMIN_EMAIL = (
+  import.meta.env.VITE_ROOT_ADMIN_EMAIL || 'curiosidades2526@gmail.com'
+).toLowerCase();
 
-const ROOT_ADMIN_INITIAL_PASSWORD = appConfig.rootAdminInitialPassword;
+const ROOT_ADMIN_INITIAL_PASSWORD =
+  import.meta.env.VITE_ROOT_ADMIN_INITIAL_PASSWORD || 'Admin2026!';
 
 type AuthRecord = {
   email: string;
@@ -22,87 +24,28 @@ type AuthRecord = {
 };
 
 class GASService {
-  getBackendStatus() {
-    return {
-      mode: BACKEND_MODE,
-      gasUrlConfigured: appConfig.isGasConfigured,
-      isProduction: appConfig.isProduction,
-      blockingError:
-        BACKEND_MODE === 'blocked' ? appConfig.backendBlockedMessage : null,
-    };
-  }
-
-  private getBlockedBackendResponse() {
-    return {
-      ok: false,
-      error: appConfig.backendBlockedMessage,
-      code: 'BACKEND_NOT_CONFIGURED',
-    };
-  }
-
   private async request(action: string, data: any = {}) {
-    if (BACKEND_MODE === 'blocked') {
-      console.error(`Backend bloqueado para la acción: ${action}`);
-      return this.getBlockedBackendResponse();
-    }
-
-    if (BACKEND_MODE === 'mock') {
-      console.warn(`Modo mock activo. Acción simulada: ${action}`);
+    if (
+      !GAS_URL ||
+      GAS_URL === 'MOCK' ||
+      GAS_URL.includes('REPLACE_WITH_YOUR_DEPLOY_ID')
+    ) {
+      console.warn(`GAS_URL no configurada. Simulando acción: ${action}`);
       return this.mockResponse(action, data);
     }
-
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
     try {
       const response = await fetch(GAS_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, ...data }),
-        signal: controller.signal,
       });
 
-      const rawText = await response.text();
-      let json: any = null;
-
-      try {
-        json = rawText ? JSON.parse(rawText) : null;
-      } catch (parseError) {
-        console.error('Respuesta no JSON desde GAS:', parseError, rawText);
-        return {
-          ok: false,
-          error: 'El backend respondió en un formato inválido.',
-        };
-      }
-
-      if (!response.ok) {
-        return {
-          ok: false,
-          error: json?.error || `Error HTTP ${response.status} al contactar el servidor.`,
-        };
-      }
-
-      if (!json || typeof json !== 'object') {
-        return {
-          ok: false,
-          error: 'El backend no devolvió una respuesta válida.',
-        };
-      }
-
+      const json = await response.json();
       return json;
-    } catch (error: any) {
+    } catch (error) {
       console.error('GAS request failed:', error);
-
-      if (error?.name === 'AbortError') {
-        return {
-          ok: false,
-          error: 'El servidor tardó demasiado en responder.',
-        };
-      }
-
       return { ok: false, error: 'Error de conexión con el servidor' };
-    } finally {
-      window.clearTimeout(timeout);
     }
   }
 
@@ -928,4 +871,3 @@ class GASService {
 }
 
 export const gasService = new GASService();
-
