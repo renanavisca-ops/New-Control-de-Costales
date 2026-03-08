@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { User, Role, Costal, Apertura, CostalStatus, OfflineAction, Store, InventoryCount } from './types';
+import { User, Role, Costal, Apertura, CostalStatus, OfflineAction, Store } from './types';
 import { CATEGORIES, PIECES_MAP, INITIAL_STORES } from './constants';
 import { gasService } from './services/gasService';
 import Scanner from './components/Scanner';
@@ -308,7 +308,7 @@ const AperturaScreen = ({ user, isOnline, showNotify, enqueueAction, loadMetrics
     <div className="space-y-6">
       <div className="bg-white p-8 rounded-[32px] shadow-sm">
         <h2 className="text-xl font-black mb-4 tracking-tighter">Apertura y Conteo</h2>
-        <Scanner onScan={checkCode} placeholder="Escanea código para validar stock..." allowManualEntry={false} />
+        <Scanner onScan={checkCode} placeholder="Escanea código para validar stock..." />
       </div>
 
       {costalInfo && (
@@ -757,81 +757,109 @@ const App: React.FC = () => {
   );
 };
 
-
 const ExistenciasView = ({ user, onOpen }: any) => {
   const [items, setItems] = useState<Costal[]>([]);
-  const [showInventoryModal, setShowInventoryModal] = useState(false);
-  const [inventorySession, setInventorySession] = useState<InventoryCount[]>([]);
-  const [inventoryLoading, setInventoryLoading] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importSummary, setImportSummary] = useState<string>('');
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const loadData = useCallback(async () => {
     const res: any = await gasService.getInventory(user?.tienda || '');
-    if (res.ok) setItems(res.data || []);
+    if (res.ok) setItems(res.data);
   }, [user?.tienda]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  const inventorySummary = useMemo(() => {
-    const grouped = inventorySession.reduce((acc: Record<string, { count: number; pieces: number }>, row) => {
-      if (!acc[row.categoria]) acc[row.categoria] = { count: 0, pieces: 0 };
-      acc[row.categoria].count += 1;
-      acc[row.categoria].pieces += Number(row.inventario_fisico || 0);
-      return acc;
-    }, {});
-
-    const ordered = Object.entries(grouped)
-      .map(([categoria, values]) => ({ categoria, ...values }))
-      .sort((a, b) => a.categoria.localeCompare(b.categoria));
-
-    return {
-      rows: ordered,
-      totalCostales: inventorySession.length,
-      totalPiezas: inventorySession.reduce((acc, row) => acc + Number(row.inventario_fisico || 0), 0),
-    };
-  }, [inventorySession]);
-
-  const resetInventorySession = () => {
-    setInventorySession([]);
+  const normalizeHeader = (value: any) => String(value || '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
+  const normalizeCategory = (value: any) => {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    const found = CATEGORIES.find((c) => c.toLowerCase() === raw.toLowerCase());
+    return found || raw.toUpperCase();
   };
 
-  const handleInventoryScan = async (code: string) => {
-    const codeClean = String(code || '').trim();
-    if (!codeClean || inventoryLoading) return;
+  const processImportFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
 
-    if (inventorySession.some((row) => row.codigo_barras === codeClean)) {
-      alert(`Ya inventariado en esta sesión: ${codeClean}`);
-      return;
-    }
+    setIsImporting(true);
+    setImportSummary('');
 
-    const found = items.find((item) => item.codigo_barras === codeClean);
-    if (!found) {
-      alert('El costal no está en existencias de la tienda.');
-      return;
-    }
-
-    setInventoryLoading(true);
     try {
-      const payload: InventoryCount = {
-        id_conteo: generateUUID(),
-        codigo_barras: found.codigo_barras,
-        categoria: found.categoria,
-        tienda: found.tienda,
-        fecha_conteo: new Date().toISOString(),
-        fecha_corte: new Date().toISOString(),
-        usuario_conteo: user?.email || '',
-        stock_piezas: Number(found.piezas_asignadas || 0),
-        inventario_fisico: Number(found.piezas_asignadas || 0),
-        diferencia: 0,
-      };
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array' });
+      const firstSheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[firstSheetName];
+      const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
 
-      const res: any = await gasService.saveInventoryCount(payload);
-      if (res?.ok) {
-        setInventorySession((prev) => [payload, ...prev]);
-      } else {
-        alert(res?.error || 'No se pudo guardar el conteo.');
+      if (!rows.length) {
+        setImportSummary('Archivo vacío.');
+        return;
       }
+
+      const headerRow = rows[0].map(normalizeHeader);
+      const findIndex = (...keys: string[]) => headerRow.findIndex((h: string) => keys.includes(h));
+
+      const codigoIndex = findIndex('codigobarras', 'codigo', 'barcode', 'costal', 'numerocostal');
+      const categoriaIndex = findIndex('categoria', 'category', 'tipo');
+      const piezasIndex = findIndex('piezasasignadas', 'piezas', 'cantidadpiezas', 'qty', 'cantidad');
+      const tiendaIndex = findIndex('tienda', 'sucursal', 'store');
+      const notasIndex = findIndex('notas', 'nota', 'observaciones', 'comentarios');
+
+      if (codigoIndex === -1 || categoriaIndex === -1) {
+        setImportSummary('El Excel debe traer al menos las columnas: codigo_barras y categoria.');
+        return;
+      }
+
+      let imported = 0;
+      let duplicates = 0;
+      let invalid = 0;
+      let failed = 0;
+
+      for (let i = 1; i < rows.length; i += 1) {
+        const row = rows[i];
+        const codigo = String(row[codigoIndex] || '').trim();
+        const categoria = normalizeCategory(row[categoriaIndex]);
+        if (!codigo || !categoria) {
+          invalid += 1;
+          continue;
+        }
+
+        const piezasBase = piezasIndex >= 0 ? Number(row[piezasIndex] || 0) : (PIECES_MAP[categoria] || 0);
+        const piezas = Number.isFinite(piezasBase) ? piezasBase : (PIECES_MAP[categoria] || 0);
+        const tienda = tiendaIndex >= 0 && String(row[tiendaIndex] || '').trim() ? String(row[tiendaIndex]).trim() : (user?.tienda || '');
+        const notas = notasIndex >= 0 ? String(row[notasIndex] || '').trim() : 'Carga masiva desde Excel';
+
+        const duplicateCheck: any = await gasService.checkDuplicate(codigo);
+        if (duplicateCheck.exists) {
+          duplicates += 1;
+          continue;
+        }
+
+        const costal: Costal = {
+          codigo_barras: codigo,
+          categoria,
+          tienda,
+          fecha_recepcion: new Date().toISOString(),
+          usuario_recibe: user?.email || '',
+          piezas_asignadas: piezas,
+          estado: CostalStatus.RECIBIDO,
+          notas,
+        };
+
+        const res: any = await gasService.addCostal(costal);
+        if (res.ok) imported += 1;
+        else failed += 1;
+      }
+
+      await loadData();
+      setImportSummary(`Importados: ${imported} • Duplicados: ${duplicates} • Inválidos: ${invalid} • Fallidos: ${failed}`);
+    } catch (error) {
+      console.error(error);
+      setImportSummary('No se pudo procesar el archivo.');
     } finally {
-      setInventoryLoading(false);
+      setIsImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
@@ -840,18 +868,27 @@ const ExistenciasView = ({ user, onOpen }: any) => {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-2xl font-black tracking-tighter">Stock en Tienda <span className="text-indigo-600">({items.length})</span></h2>
         <div className="flex gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            className="hidden"
+            onChange={processImportFile}
+          />
           <button
-            onClick={() => setShowInventoryModal(true)}
-            className="bg-indigo-600 text-white px-4 py-3 rounded-2xl font-black text-xs uppercase tracking-widest"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isImporting}
+            className="bg-emerald-600 text-white px-4 py-3 rounded-2xl font-black text-xs uppercase tracking-widest disabled:opacity-50"
           >
-            Toma de Inventario
+            {isImporting ? 'Cargando...' : 'Cargar Excel'}
           </button>
         </div>
       </div>
 
-      <div className="bg-white p-4 rounded-3xl shadow-sm border border-indigo-100 text-xs text-gray-500">
-        <p className="font-black text-indigo-700 uppercase tracking-widest mb-1">Control por escáner</p>
-        <p>La recepción, apertura e inventario de costales se realiza únicamente escaneando código de barras.</p>
+      <div className="bg-white p-4 rounded-3xl shadow-sm border border-emerald-100 text-xs text-gray-500">
+        <p className="font-black text-emerald-700 uppercase tracking-widest mb-1">Carga desde bodega</p>
+        <p>Columnas sugeridas: <span className="font-bold">codigo_barras</span>, <span className="font-bold">categoria</span>, <span className="font-bold">piezas_asignadas</span>, <span className="font-bold">tienda</span>, <span className="font-bold">notas</span>.</p>
+        {importSummary && <p className="mt-2 font-black text-indigo-600">{importSummary}</p>}
       </div>
 
       {items.length === 0 ? <div className="text-center p-20 text-gray-300 font-black border border-dashed rounded-[40px]">Inventario Vacío</div> : (
@@ -860,98 +897,68 @@ const ExistenciasView = ({ user, onOpen }: any) => {
             <div key={item.codigo_barras} className="bg-white p-6 rounded-3xl shadow-sm border-l-8 border-indigo-500 flex justify-between items-center">
               <div>
                 <p className="font-black text-gray-900">{item.codigo_barras}</p>
-                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">{item.categoria} • PZS: {item.piezas_asignadas}</p>
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">{item.categoria} • ESP: {item.piezas_asignadas}</p>
               </div>
               <button onClick={() => onOpen(item.codigo_barras)} className="bg-indigo-600 text-white px-6 py-3 rounded-2xl font-black text-xs">ABRIR</button>
             </div>
           ))}
         </div>
       )}
-
-      {showInventoryModal && (
-        <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-4">
-          <div className="bg-white w-full max-w-2xl rounded-[40px] p-8 space-y-6 shadow-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <h3 className="text-2xl font-black">Toma de Inventario</h3>
-                <p className="text-xs font-bold text-gray-500 uppercase tracking-widest">Escanea costales de la tienda</p>
-              </div>
-              <button onClick={() => setShowInventoryModal(false)} className="text-gray-400 font-bold">Cerrar</button>
-            </div>
-
-            <div className="bg-indigo-50 rounded-3xl p-5">
-              <Scanner
-                onScan={handleInventoryScan}
-                placeholder="Escanea costal para inventario..."
-                allowManualEntry={false}
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="bg-gray-50 rounded-3xl p-4 text-center">
-                <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Total General Costales</p>
-                <p className="text-3xl font-black text-gray-900 mt-2">{inventorySummary.totalCostales}</p>
-              </div>
-              <div className="bg-gray-50 rounded-3xl p-4 text-center">
-                <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Total General Piezas</p>
-                <p className="text-3xl font-black text-gray-900 mt-2">{inventorySummary.totalPiezas}</p>
-              </div>
-            </div>
-
-            <div className="bg-white border border-gray-100 rounded-3xl overflow-hidden">
-              <div className="grid grid-cols-3 gap-2 bg-gray-50 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-gray-400">
-                <div>Categoría</div>
-                <div className="text-center">Costales</div>
-                <div className="text-center">Piezas</div>
-              </div>
-              {inventorySummary.rows.length === 0 ? (
-                <div className="p-8 text-center text-sm font-bold text-gray-400">Sin lecturas en esta sesión.</div>
-              ) : inventorySummary.rows.map((row) => (
-                <div key={row.categoria} className="grid grid-cols-3 gap-2 px-4 py-3 border-t border-gray-100 text-sm">
-                  <div className="font-black text-gray-900">{row.categoria}</div>
-                  <div className="text-center font-bold text-gray-700">{row.count}</div>
-                  <div className="text-center font-bold text-gray-700">{row.pieces}</div>
-                </div>
-              ))}
-            </div>
-
-            <div className="bg-white border border-gray-100 rounded-3xl overflow-hidden">
-              <div className="grid grid-cols-[1.4fr_1fr_1fr] gap-2 bg-gray-50 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-gray-400">
-                <div>Código de Costal</div>
-                <div className="text-center">Categoría</div>
-                <div className="text-center">Piezas</div>
-              </div>
-              {inventorySession.length === 0 ? (
-                <div className="p-8 text-center text-sm font-bold text-gray-400">Aún no se han escaneado costales.</div>
-              ) : inventorySession.map((row) => (
-                <div key={row.id_conteo} className="grid grid-cols-[1.4fr_1fr_1fr] gap-2 px-4 py-3 border-t border-gray-100 text-sm">
-                  <div className="font-black text-gray-900">{row.codigo_barras}</div>
-                  <div className="text-center font-bold text-gray-700">{row.categoria}</div>
-                  <div className="text-center font-bold text-gray-700">{row.inventario_fisico}</div>
-                </div>
-              ))}
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                onClick={resetInventorySession}
-                className="flex-1 bg-gray-100 text-gray-700 font-black py-4 rounded-3xl"
-              >
-                Limpiar sesión
-              </button>
-              <button
-                onClick={() => setShowInventoryModal(false)}
-                className="flex-1 bg-indigo-600 text-white font-black py-4 rounded-3xl"
-              >
-                Finalizar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
+
+function RecepcionView({ user, isOnline, showNotify, enqueueAction, loadMetrics, onDataChanged, selectedCategory, setSelectedCategory, sessionScannedCodes, setSessionScannedCodes }: any) {
+  const onScanCode = async (code: string) => {
+    const codeClean = code.trim();
+    if (!codeClean) return;
+    if (sessionScannedCodes.has(codeClean)) return showNotify('error', `Ya escaneado: ${codeClean}`);
+    if (isOnline) {
+      const check: any = await gasService.checkDuplicate(codeClean);
+      if (check.exists) {
+        setSessionScannedCodes((prev: Set<string>) => new Set(prev).add(codeClean));
+        return showNotify('error', 'Ya registrado en el sistema.');
+      }
+    }
+    const pieces = selectedCategory === 'SALDO' ? 0 : PIECES_MAP[selectedCategory];
+    const newCostal: Costal = {
+      codigo_barras: codeClean,
+      categoria: selectedCategory,
+      tienda: user?.tienda || '',
+      fecha_recepcion: new Date().toISOString(),
+      usuario_recibe: user?.email || '',
+      piezas_asignadas: pieces,
+      estado: CostalStatus.RECIBIDO,
+      notas: '',
+    };
+    setSessionScannedCodes((prev: Set<string>) => new Set(prev).add(codeClean));
+    if (isOnline) {
+      const res: any = await gasService.addCostal(newCostal);
+      if (res.ok) {
+        showNotify('success', `RECIBIDO: ${codeClean}`);
+        await loadMetrics();
+        await onDataChanged?.();
+      }
+    } else {
+      enqueueAction({ type: 'ADD_COSTAL', payload: newCostal });
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white p-8 rounded-[32px] shadow-sm space-y-4">
+        <label className="block text-xs font-black text-gray-400 uppercase tracking-widest">Categoría de Recepción</label>
+        <select value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)} className="w-full p-4 bg-gray-50 rounded-2xl outline-none font-bold text-gray-700">
+          {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+      </div>
+      <div className="bg-white p-8 rounded-[32px] shadow-sm">
+        <h2 className="text-xl font-black mb-4">Scanner Recepción</h2>
+        <Scanner onScan={onScanCode} />
+      </div>
+    </div>
+  );
+}
 
 const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateStore, onDeleteStore, onCreateManagedUser, onDeleteUser, onResetStoreData, loading }: any) => {
   const [users, setUsers] = useState<User[]>([]);
@@ -1455,7 +1462,6 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
   );
 };
 
-
 const ReportesView = () => {
   const [dateFrom, setDateFrom] = useState(new Date().toISOString().split('T')[0]);
   const [dateTo, setDateTo] = useState(new Date().toISOString().split('T')[0]);
@@ -1464,42 +1470,8 @@ const ReportesView = () => {
 
   const generateReport = async () => {
     const res: any = await gasService.getDetailedReport({ type: reportType, dateFrom, dateTo, tienda: 'ALL', usuario: 'ALL' });
-    if (res.ok) setResults(res.data || []);
+    if (res.ok) setResults(res.data);
   };
-
-  const normalizedRows = useMemo(() => {
-    return results.map((item) => ({
-      codigo_barras: item.codigo_barras || '',
-      categoria: item.categoria || 'SIN CATEGORÍA',
-      piezas: Number(
-        reportType === 'ABIERTOS'
-          ? (item.piezas_contadas ?? item.piezas_asignadas ?? 0)
-          : (item.piezas_asignadas ?? item.inventario_fisico ?? 0)
-      ),
-    }));
-  }, [results, reportType]);
-
-  const groupedReport = useMemo(() => {
-    const grouped = normalizedRows.reduce((acc: Record<string, { categoria: string; items: any[]; totalPiezas: number; totalCostales: number }>, row) => {
-      if (!acc[row.categoria]) {
-        acc[row.categoria] = {
-          categoria: row.categoria,
-          items: [],
-          totalPiezas: 0,
-          totalCostales: 0,
-        };
-      }
-      acc[row.categoria].items.push(row);
-      acc[row.categoria].totalPiezas += row.piezas;
-      acc[row.categoria].totalCostales += 1;
-      return acc;
-    }, {});
-
-    return Object.values(grouped).sort((a, b) => a.categoria.localeCompare(b.categoria));
-  }, [normalizedRows]);
-
-  const totalGeneralCostales = normalizedRows.length;
-  const totalGeneralPiezas = normalizedRows.reduce((acc, row) => acc + row.piezas, 0);
 
   return (
     <div className="space-y-6 pb-20">
@@ -1516,48 +1488,22 @@ const ReportesView = () => {
         </div>
         <button onClick={generateReport} className="w-full bg-gray-900 text-white font-black py-4 rounded-[28px] text-xs uppercase tracking-widest shadow-xl">Generar Consulta</button>
       </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <div className="bg-white p-5 rounded-[32px] shadow-sm text-center">
-          <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Totales Generales Costales</p>
-          <p className="text-3xl font-black text-gray-900 mt-2">{totalGeneralCostales}</p>
-        </div>
-        <div className="bg-white p-5 rounded-[32px] shadow-sm text-center">
-          <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Totales Generales Piezas</p>
-          <p className="text-3xl font-black text-gray-900 mt-2">{totalGeneralPiezas}</p>
-        </div>
-      </div>
-
-      {groupedReport.length === 0 ? (
-        <div className="bg-white p-10 rounded-[32px] shadow-sm text-center text-gray-400 font-black">Sin resultados.</div>
-      ) : groupedReport.map((group) => (
-        <div key={group.categoria} className="bg-white p-5 rounded-[32px] shadow-sm space-y-4">
-          <div className="flex items-center justify-between gap-4 border-b border-gray-100 pb-4">
+      <div className="space-y-3">
+        {results.map((item, i) => (
+          <div key={i} className="bg-white p-5 rounded-[32px] shadow-sm flex justify-between items-center">
             <div>
-              <h3 className="text-lg font-black text-gray-900">{group.categoria}</h3>
-              <p className="text-[10px] font-black uppercase tracking-widest text-indigo-500 mt-1">
-                Total costales: {group.totalCostales} • Total piezas: {group.totalPiezas}
-              </p>
+              <p className="font-black text-gray-900 text-sm tracking-tight">{item.codigo_barras || 'ID:' + item.id_apertura?.substring(0, 8)}</p>
+              <p className="text-[9px] font-black text-gray-400 uppercase">{item.categoria}</p>
+              <p className="text-[8px] font-bold text-indigo-400 mt-0.5">{new Date(item.fecha_recepcion || item.fecha_apertura).toLocaleDateString()}</p>
             </div>
-          </div>
-
-          <div className="rounded-3xl overflow-hidden border border-gray-100">
-            <div className="grid grid-cols-[1.4fr_1fr_0.7fr] gap-2 bg-gray-50 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-gray-400">
-              <div>Código de Costal</div>
-              <div className="text-center">Categoría</div>
-              <div className="text-center">Piezas</div>
-            </div>
-
-            {group.items.map((item, index) => (
-              <div key={`${group.categoria}-${item.codigo_barras}-${index}`} className="grid grid-cols-[1.4fr_1fr_0.7fr] gap-2 px-4 py-3 border-t border-gray-100 text-sm">
-                <div className="font-black text-gray-900">{item.codigo_barras}</div>
-                <div className="text-center font-bold text-gray-700">{item.categoria}</div>
-                <div className="text-center font-bold text-gray-700">{item.piezas}</div>
+            {item.diferencia !== undefined && (
+              <div className={`text-xs font-black p-3 rounded-2xl ${item.diferencia >= 0 ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
+                {item.diferencia > 0 ? '+' : ''}{item.diferencia}
               </div>
-            ))}
+            )}
           </div>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 };
