@@ -5,12 +5,18 @@ interface ScannerProps {
   onScan: (code: string) => void;
   placeholder?: string;
   allowManualEntry?: boolean;
+  codePattern?: RegExp;
+  invalidMessage?: string;
+  normalizeScan?: (code: string) => string;
 }
 
 const Scanner: React.FC<ScannerProps> = ({
   onScan,
   placeholder = "Escanea código...",
-  allowManualEntry = true
+  allowManualEntry = true,
+  codePattern,
+  invalidMessage = 'Código inválido.',
+  normalizeScan
 }) => {
   const [manualCode, setManualCode] = useState("");
   const [isCameraActive, setIsCameraActive] = useState(false);
@@ -18,15 +24,34 @@ const Scanner: React.FC<ScannerProps> = ({
 
   const inputRef = useRef<HTMLInputElement>(null);
   const qrRef = useRef<Html5Qrcode | null>(null);
+  const lastScannedRef = useRef<string>('');
 
   const SCAN_REGION_ID = "scan-region";
 
+  const normalizeValue = (value: string) => {
+    const clean = normalizeScan ? normalizeScan(value) : value.trim();
+    return clean.trim();
+  };
+
+  const submitCode = (rawValue: string) => {
+    const code = normalizeValue(rawValue);
+    if (!code) return;
+    if (codePattern && !codePattern.test(code)) {
+      setError(invalidMessage);
+      return;
+    }
+    setError(null);
+    if (lastScannedRef.current === code) return;
+    lastScannedRef.current = code;
+    window.setTimeout(() => {
+      if (lastScannedRef.current === code) lastScannedRef.current = '';
+    }, 1200);
+    onScan(code);
+  };
+
   const handleManualSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const code = manualCode.trim();
-    if (!code) return;
-
-    onScan(code);
+    submitCode(manualCode);
     setManualCode("");
     inputRef.current?.focus();
   };
@@ -49,7 +74,7 @@ const Scanner: React.FC<ScannerProps> = ({
           qrbox: { width: 220, height: 120 }
         },
         (decodedText) => {
-          onScan(decodedText);
+          submitCode(decodedText);
           if (navigator.vibrate) navigator.vibrate(100);
         },
         () => {
@@ -142,5 +167,7 @@ const Scanner: React.FC<ScannerProps> = ({
     </div>
   );
 };
+
+export default Scanner;
 
 export default Scanner;
