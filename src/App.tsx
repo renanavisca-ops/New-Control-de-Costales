@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { User, Role, Costal, Apertura, CostalStatus, OfflineAction, Store } from './types';
+import { User, Role, Costal, Apertura, CostalStatus, OfflineAction, Store, InventoryDifferenceRow } from './types';
 import { CATEGORIES, PIECES_MAP, INITIAL_STORES } from './constants';
 import { gasService } from './services/gasService';
 import Scanner from './components/Scanner';
@@ -12,8 +12,8 @@ type Screen =
   | 'RECEPCION'
   | 'EXISTENCIAS'
   | 'APERTURA'
-  | 'METRICAS'
   | 'INVENTARIO'
+  | 'METRICAS'
   | 'REPORTES';
 
 interface ReportData {
@@ -33,47 +33,37 @@ const generateUUID = () => {
   });
 };
 
-const getInventorySessionStorageKey = (tienda: string) => `cc_inventory_session_${tienda || 'GLOBAL'}`;
-
-const saveInventorySession = (tienda: string, payload: { scannedRows: { codigo: string; categoria: string; piezas: number }[]; expectedRows: Costal[]; updatedAt?: string }) => {
-  const key = getInventorySessionStorageKey(tienda);
-  localStorage.setItem(
-    key,
-    JSON.stringify({
-      tienda,
-      scannedRows: payload.scannedRows,
-      expectedRows: payload.expectedRows,
-      updatedAt: payload.updatedAt || new Date().toISOString(),
-    })
-  );
-};
-
-const loadInventorySession = (tienda: string) => {
-  const raw = localStorage.getItem(getInventorySessionStorageKey(tienda));
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-};
-
 const canAccessAdmin = (user: User | null) => user?.rol === Role.ADMIN || user?.rol === Role.ADMIN_2;
-const canAccessReports = (user: User | null) => !!user && [Role.ADMIN, Role.ADMIN_2, Role.SUPERVISOR, Role.OPERADOR].includes(user.rol);
+const canAccessReports = (user: User | null) => Boolean(user);
 const isRootAdmin = (user: User | null) => (user?.email || '').toLowerCase() === ROOT_ADMIN_EMAIL;
 
-const normalizeCategory = (value: string) => String(value || '').trim().toUpperCase();
 
-const groupRowsByCategory = (rows: any[]) => {
-  const grouped = rows.reduce((acc, row) => {
-    const category = normalizeCategory(row.categoria) || 'SIN CATEGORÍA';
-    if (!acc[category]) acc[category] = [];
-    acc[category].push(row);
-    return acc;
-  }, {} as Record<string, any[]>);
+const VALID_COSTAL_REGEX = /^EMP02\d+$/;
 
-  return Object.entries(grouped).sort((a, b) => a[0].localeCompare(b[0], 'es'));
+const normalizeScannedCostalCode = (raw: string) => {
+  let value = String(raw || '')
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^A-Z0-9]/g, '');
+
+  value = value
+    .replace(/^EMPO2/, 'EMP02')
+    .replace(/^EMPD2/, 'EMP02')
+    .replace(/^EMPQ2/, 'EMP02')
+    .replace(/^EMP0Z/, 'EMP02')
+    .replace(/^EMP02O+/, 'EMP02')
+    .replace(/^EMP02/, 'EMP02');
+
+  if (value.startsWith('EMP02')) {
+    const suffix = value.slice(5).replace(/[^0-9]/g, '').replace(/O/g, '0').replace(/I/g, '1').replace(/L/g, '1').replace(/S/g, '5').replace(/B/g, '8');
+    value = `EMP02${suffix}`;
+  }
+
+  return value;
 };
+
+const getInventorySessionStorageKey = (storeId: string) => `cc_inventory_session_${storeId || 'ALL'}`;
 
 const canManageUser = (currentUser: User | null, target: User) => {
   if (!currentUser) return false;
@@ -272,7 +262,7 @@ const AperturaScreen = ({ user, isOnline, showNotify, enqueueAction, loadMetrics
   }, []);
 
   const checkCode = async (c: string) => {
-    const codeClean = c.trim();
+    const codeClean = normalizeScannedCostalCode(c);
     if (!codeClean) return;
     setCode(codeClean);
     localStorage.removeItem('pending_apertura_code');
@@ -347,7 +337,7 @@ const AperturaScreen = ({ user, isOnline, showNotify, enqueueAction, loadMetrics
     <div className="space-y-6">
       <div className="bg-white p-8 rounded-[32px] shadow-sm">
         <h2 className="text-xl font-black mb-4 tracking-tighter">Apertura y Conteo</h2>
-        <Scanner onScan={checkCode} placeholder="Escanea código para validar stock..." allowManualEntry={false} />
+        <Scanner onScan={checkCode} placeholder="Escanea código para validar stock..." allowManualEntry={false} codePattern={VALID_COSTAL_REGEX} invalidMessage="Código inválido. Debe iniciar con EMP02 y continuar con dígitos." normalizeScan={normalizeScannedCostalCode} />
       </div>
 
       {costalInfo && (
@@ -686,7 +676,7 @@ const App: React.FC = () => {
     { id: 'RECEPCION', label: 'Recibir', icon: '📥', show: true },
     { id: 'EXISTENCIAS', label: 'Stock', icon: '📦', show: true },
     { id: 'APERTURA', label: 'Abrir', icon: '✂️', show: true },
-    { id: 'INVENTARIO', label: 'Inventario', icon: '🧾', show: true },
+    { id: 'INVENTARIO', label: 'Inventario', icon: '📷', show: true },
     { id: 'METRICAS', label: 'Admin', icon: '⚙️', show: canAccessAdmin(user) },
     { id: 'REPORTES', label: 'Reportes', icon: '📋', show: canAccessReports(user) },
   ];
@@ -750,7 +740,7 @@ const App: React.FC = () => {
             onDataChanged={refreshAdminData}
           />
         )}
-        {currentScreen === 'EXISTENCIAS' && <ExistenciasView user={user} />}
+        {currentScreen === 'EXISTENCIAS' && <ExistenciasView user={user} onOpen={(code: string) => { localStorage.setItem('pending_apertura_code', code); setCurrentScreen('APERTURA'); }} />}
         {currentScreen === 'RECEPCION' && (
           <RecepcionView
             user={user}
@@ -786,7 +776,7 @@ const App: React.FC = () => {
             loading={loading}
           />
         )}
-        {currentScreen === 'REPORTES' && canAccessReports(user) && <ReportesView user={user} />}
+        {currentScreen === 'REPORTES' && canAccessReports(user) && <ReportesView user={user} stores={stores} showNotify={showNotify} />}
       </main>
 
       {user && currentScreen !== 'CHANGE_PASSWORD' && (
@@ -803,7 +793,7 @@ const App: React.FC = () => {
   );
 };
 
-const ExistenciasView = ({ user }: any) => {
+const ExistenciasView = ({ user, onOpen }: any) => {
   const [items, setItems] = useState<Costal[]>([]);
   const [isImporting, setIsImporting] = useState(false);
   const [importSummary, setImportSummary] = useState<string>('');
@@ -945,7 +935,7 @@ const ExistenciasView = ({ user }: any) => {
                 <p className="font-black text-gray-900">{item.codigo_barras}</p>
                 <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">{item.categoria} • ESP: {item.piezas_asignadas}</p>
               </div>
-              <div className="bg-indigo-50 text-indigo-700 px-4 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest text-center">Apertura solo por escáner</div>
+              <div className="bg-indigo-50 text-indigo-700 px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest text-center">Apertura solo por escáner</div>
             </div>
           ))}
         </div>
@@ -956,7 +946,7 @@ const ExistenciasView = ({ user }: any) => {
 
 const RecepcionView = ({ user, isOnline, showNotify, enqueueAction, loadMetrics, onDataChanged, selectedCategory, setSelectedCategory, sessionScannedCodes, setSessionScannedCodes }: any) => {
   const onScanCode = async (code: string) => {
-    const codeClean = code.trim();
+    const codeClean = normalizeScannedCostalCode(code);
     if (!codeClean) return;
     if (sessionScannedCodes.has(codeClean)) return showNotify('error', `Ya escaneado: ${codeClean}`);
     if (isOnline) {
@@ -1000,7 +990,134 @@ const RecepcionView = ({ user, isOnline, showNotify, enqueueAction, loadMetrics,
       </div>
       <div className="bg-white p-8 rounded-[32px] shadow-sm">
         <h2 className="text-xl font-black mb-4">Scanner Recepción</h2>
-        <Scanner onScan={onScanCode} allowManualEntry={false} />
+        <Scanner onScan={onScanCode} allowManualEntry={false} codePattern={VALID_COSTAL_REGEX} invalidMessage="Código inválido. Debe iniciar con EMP02 y continuar con dígitos." normalizeScan={normalizeScannedCostalCode} />
+      </div>
+    </div>
+  );
+};
+
+
+const InventarioView = ({ user, showNotify }: any) => {
+  const [stockItems, setStockItems] = useState<Costal[]>([]);
+  const [scannedCodes, setScannedCodes] = useState<Set<string>>(new Set());
+  const [lastSessionAt, setLastSessionAt] = useState<string>('');
+
+  const sessionKey = getInventorySessionStorageKey(user?.tienda || '');
+
+  const loadStock = useCallback(async () => {
+    const res: any = await gasService.getInventory(user?.tienda || '');
+    if (res.ok) setStockItems(res.data || []);
+  }, [user?.tienda]);
+
+  useEffect(() => { loadStock(); }, [loadStock]);
+
+  useEffect(() => {
+    const raw = localStorage.getItem(sessionKey);
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw);
+      setScannedCodes(new Set((parsed.codes || []) as string[]));
+      setLastSessionAt(parsed.fecha || '');
+    } catch {
+      setScannedCodes(new Set());
+      setLastSessionAt('');
+    }
+  }, [sessionKey]);
+
+  const saveSession = (codes: Set<string>) => {
+    const payload = {
+      tienda: user?.tienda || '',
+      usuario: user?.email || '',
+      fecha: new Date().toISOString(),
+      codes: Array.from(codes),
+    };
+    localStorage.setItem(sessionKey, JSON.stringify(payload));
+    setLastSessionAt(payload.fecha);
+  };
+
+  const onScanInventory = (rawCode: string) => {
+    const code = normalizeScannedCostalCode(rawCode);
+    if (!VALID_COSTAL_REGEX.test(code)) {
+      showNotify('error', 'Código inválido para inventario.');
+      return;
+    }
+    const stockItem = stockItems.find((item) => item.codigo_barras === code);
+    if (!stockItem) {
+      showNotify('error', `El costal ${code} no pertenece al stock de esta sede.`);
+      return;
+    }
+    if (scannedCodes.has(code)) {
+      showNotify('warning', `El costal ${code} ya fue contado en esta toma.`);
+      return;
+    }
+    const next = new Set(scannedCodes);
+    next.add(code);
+    setScannedCodes(next);
+    saveSession(next);
+    showNotify('success', `Inventario contado: ${code}`);
+  };
+
+  const clearSession = () => {
+    if (!confirm('¿Deseas reiniciar la toma de inventario de esta sede?')) return;
+    localStorage.removeItem(sessionKey);
+    setScannedCodes(new Set());
+    setLastSessionAt('');
+    showNotify('success', 'Toma de inventario reiniciada.');
+  };
+
+  const grouped = useMemo(() => {
+    const map = new Map<string, Costal[]>();
+    stockItems.forEach((item) => {
+      if (!map.has(item.categoria)) map.set(item.categoria, []);
+      map.get(item.categoria)!.push(item);
+    });
+    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [stockItems]);
+
+  return (
+    <div className="space-y-6"> 
+      <div className="bg-white p-8 rounded-[32px] shadow-sm space-y-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-black tracking-tighter">Toma de Inventario</h2>
+            <p className="text-xs text-gray-500 font-semibold mt-1">Escanea cada costal físico. El sistema comparará la última toma guardada contra el stock actual de la sede.</p>
+          </div>
+          <div className="bg-indigo-50 text-indigo-700 px-4 py-3 rounded-2xl text-center min-w-[110px]">
+            <div className="text-[10px] font-black uppercase tracking-widest">Contados</div>
+            <div className="text-2xl font-black">{scannedCodes.size}</div>
+          </div>
+        </div>
+        <Scanner onScan={onScanInventory} allowManualEntry={false} codePattern={VALID_COSTAL_REGEX} invalidMessage="Código inválido. Debe iniciar con EMP02 y continuar con dígitos." normalizeScan={normalizeScannedCostalCode} />
+        <div className="flex gap-3">
+          <button onClick={clearSession} className="flex-1 bg-red-50 text-red-600 font-black py-4 rounded-3xl text-xs uppercase tracking-widest">Reiniciar Toma</button>
+          <button onClick={loadStock} className="flex-1 bg-gray-900 text-white font-black py-4 rounded-3xl text-xs uppercase tracking-widest">Actualizar Stock</button>
+        </div>
+        {lastSessionAt && <p className="text-[10px] font-bold text-indigo-500">Última toma guardada: {new Date(lastSessionAt).toLocaleString()}</p>}
+      </div>
+
+      <div className="bg-white p-8 rounded-[32px] shadow-sm space-y-4">
+        <div className="flex justify-between items-center">
+          <h3 className="text-lg font-black tracking-tighter">Stock esperado por categoría</h3>
+          <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{stockItems.length} costales</div>
+        </div>
+        <div className="space-y-3">
+          {grouped.map(([categoria, items]) => {
+            const counted = items.filter((item) => scannedCodes.has(item.codigo_barras)).length;
+            return (
+              <div key={categoria} className="bg-gray-50 rounded-3xl px-5 py-4 flex items-center justify-between">
+                <div>
+                  <div className="font-black text-sm text-gray-900">{categoria}</div>
+                  <div className="text-[10px] font-bold text-gray-500">Esperados: {items.length} costales</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-lg font-black text-indigo-600">{counted}/{items.length}</div>
+                  <div className="text-[10px] font-bold text-gray-400 uppercase">contados</div>
+                </div>
+              </div>
+            );
+          })}
+          {grouped.length === 0 && <div className="text-center p-10 text-gray-300 font-black border border-dashed rounded-[40px]">No hay stock cargado para esta sede.</div>}
+        </div>
       </div>
     </div>
   );
@@ -1509,482 +1626,168 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
 };
 
 
-const InventarioView = ({ user, showNotify }: any) => {
-  const [loading, setLoading] = useState(false);
-  const [expected, setExpected] = useState<Costal[]>([]);
-  const [scannedCodes, setScannedCodes] = useState<Set<string>>(new Set());
-  const [scannedRows, setScannedRows] = useState<Costal[]>([]);
-
-  const loadExpected = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res: any = await gasService.getInventory(user?.tienda || '');
-      if (res.ok) {
-        setExpected(res.data || []);
-      } else {
-        showNotify('error', res.error || 'No se pudo cargar el inventario esperado.');
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, [showNotify, user]);
-
-  useEffect(() => {
-    loadExpected();
-  }, [loadExpected]);
-
-  const onScanInventory = (rawCode: string) => {
-    const code = rawCode.trim();
-    if (!code) return;
-    if (scannedCodes.has(code)) {
-      showNotify('warning', `Costal duplicado en inventario: ${code}`);
-      return;
-    }
-
-    const found = expected.find((item) => item.codigo_barras === code);
-    if (!found) {
-      showNotify('error', `El costal ${code} no pertenece al stock actual.`);
-      return;
-    }
-
-    setScannedCodes((prev) => new Set(prev).add(code));
-    setScannedRows((prev) => [found, ...prev]);
-    showNotify('success', `Inventariado: ${code}`);
-  };
-
-  const missingRows = expected.filter((item) => !scannedCodes.has(item.codigo_barras));
-  const groupedScanned = groupRowsByCategory(
-    scannedRows.map((item) => ({
-      codigo: item.codigo_barras,
-      categoria: item.categoria,
-      piezas: item.piezas_asignadas || 0,
-    }))
-  );
-
-  const totalScannedCostales = scannedRows.length;
-  const totalScannedPieces = scannedRows.reduce((acc, item) => acc + (item.piezas_asignadas || 0), 0);
-  const totalPendingCostales = missingRows.length;
-  const totalPendingPieces = missingRows.reduce((acc, item) => acc + (item.piezas_asignadas || 0), 0);
-
-  useEffect(() => {
-    saveInventorySession(user?.tienda || '', {
-      scannedRows: scannedRows.map((item) => ({
-        codigo: item.codigo_barras,
-        categoria: item.categoria,
-        piezas: Number(item.piezas_asignadas || 0),
-      })),
-      expectedRows: expected,
-    });
-  }, [expected, scannedRows, user]);
-
-  return (
-    <div className="space-y-6 pb-20">
-      <div className="bg-white p-8 rounded-[32px] shadow-sm space-y-4">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <h2 className="text-xl font-black tracking-tighter">Toma de Inventario</h2>
-            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">Escaneo de costales de la tienda {user?.tienda || ''}</p>
-          </div>
-          <button onClick={loadExpected} disabled={loading} className="bg-gray-900 text-white px-4 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest disabled:opacity-50">
-            {loading ? 'Cargando...' : 'Recargar'}
-          </button>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div className="bg-indigo-50 rounded-3xl p-4 text-center">
-            <p className="text-[10px] font-black uppercase tracking-widest text-indigo-500">Costales contados</p>
-            <p className="text-3xl font-black text-indigo-700 mt-2">{totalScannedCostales}</p>
-            <p className="text-[10px] font-bold text-indigo-400 mt-1">Piezas: {totalScannedPieces}</p>
-          </div>
-          <div className="bg-orange-50 rounded-3xl p-4 text-center">
-            <p className="text-[10px] font-black uppercase tracking-widest text-orange-500">Pendientes</p>
-            <p className="text-3xl font-black text-orange-700 mt-2">{totalPendingCostales}</p>
-            <p className="text-[10px] font-bold text-orange-400 mt-1">Piezas: {totalPendingPieces}</p>
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-white p-8 rounded-[32px] shadow-sm">
-        <h3 className="text-lg font-black mb-4">Escanear costales</h3>
-        <Scanner onScan={onScanInventory} allowManualEntry={false} placeholder="Escanea costal para inventario" />
-      </div>
-
-      <div className="space-y-4">
-        {groupedScanned.length === 0 ? (
-          <div className="bg-white p-8 rounded-[32px] shadow-sm text-center text-gray-400 font-black border border-dashed">Sin costales inventariados aún.</div>
-        ) : (
-          groupedScanned.map(([category, rows]) => {
-            const subtotalPieces = rows.reduce((acc, row) => acc + (row.piezas || 0), 0);
-            return (
-              <div key={category} className="bg-white p-6 rounded-[32px] shadow-sm space-y-3">
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <h4 className="text-sm font-black text-gray-900 uppercase tracking-widest">{category}</h4>
-                    <p className="text-[10px] font-bold text-gray-400">Costales: {rows.length}</p>
-                  </div>
-                  <div className="bg-indigo-50 text-indigo-700 px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest">
-                    Piezas: {subtotalPieces}
-                  </div>
-                </div>
-                <div className="overflow-hidden rounded-3xl border border-gray-100">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-gray-50 text-gray-500 uppercase tracking-widest text-[10px]">
-                      <tr>
-                        <th className="px-4 py-3">Código de costal</th>
-                        <th className="px-4 py-3">Categoría</th>
-                        <th className="px-4 py-3 text-right">Piezas</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map((row) => (
-                        <tr key={row.codigo} className="border-t border-gray-100">
-                          <td className="px-4 py-3 font-black text-gray-900">{row.codigo}</td>
-                          <td className="px-4 py-3 font-bold text-gray-500">{row.categoria}</td>
-                          <td className="px-4 py-3 font-black text-right text-indigo-600">{row.piezas}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            );
-          })
-        )}
-      </div>
-    </div>
-  );
-};
-
-
-const ReportesView = ({ user }: any) => {
+const ReportesView = ({ user, stores, showNotify }: any) => {
+  const isAdminViewer = canAccessAdmin(user);
   const [dateFrom, setDateFrom] = useState(new Date().toISOString().split('T')[0]);
   const [dateTo, setDateTo] = useState(new Date().toISOString().split('T')[0]);
-  const [reportType, setReportType] = useState<'STOCK' | 'RECIBIDOS' | 'ABIERTOS' | 'DIFERENCIAS'>('RECIBIDOS');
+  const [reportType, setReportType] = useState('RECIBIDOS');
+  const [selectedStore, setSelectedStore] = useState<string>(isAdminViewer ? 'ALL' : (user?.tienda || 'ALL'));
   const [results, setResults] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loadingReport, setLoadingReport] = useState(false);
 
-  const mappedRows = useMemo(() => {
-    if (reportType === 'DIFERENCIAS') {
-      return results.map((item) => ({
-        codigo: item.codigo_barras || '',
-        categoria: item.categoria || 'SIN CATEGORÍA',
-        piezasStock: Number(item.stock_piezas ?? 0),
-        piezasFisico: Number(item.inventario_fisico ?? 0),
-        diferencia: Number(item.diferencia ?? 0),
-        estado: item.estado || (Number(item.diferencia ?? 0) === 0 ? 'CUADRADO' : Number(item.diferencia ?? 0) > 0 ? 'SOBRANTE' : 'FALTANTE'),
-      }));
-    }
+  useEffect(() => {
+    if (!isAdminViewer) setSelectedStore(user?.tienda || 'ALL');
+  }, [isAdminViewer, user?.tienda]);
 
-    return results.map((item) => ({
-      codigo: item.codigo_barras || '',
-      categoria: item.categoria || 'SIN CATEGORÍA',
-      piezas: reportType === 'ABIERTOS'
-        ? Number(item.piezas_contadas ?? item.piezas_asignadas ?? 0)
-        : Number(item.piezas_asignadas ?? item.stock_piezas ?? 0),
-      fecha: item.fecha_recepcion || item.fecha_apertura || '',
-      tienda: item.tienda || user?.tienda || '',
-    }));
-  }, [reportType, results, user]);
+  const inventoryDifferenceRows = useMemo(() => {
+    const targetStores = selectedStore === 'ALL' ? stores.map((s: Store) => s.id_tienda) : [selectedStore];
+    const rows: InventoryDifferenceRow[] = [];
 
-  const groupedRows = useMemo(() => groupRowsByCategory(mappedRows), [mappedRows]);
+    targetStores.forEach((storeId) => {
+      const stockRows = results.filter((item) => item.tienda === storeId);
+      const rawSession = localStorage.getItem(getInventorySessionStorageKey(storeId));
+      let sessionCodes = new Set<string>();
+      let sessionDate = '';
+      if (rawSession) {
+        try {
+          const parsed = JSON.parse(rawSession);
+          sessionCodes = new Set((parsed.codes || []).map((code: string) => normalizeScannedCostalCode(code)));
+          sessionDate = parsed.fecha || '';
+        } catch {
+          sessionCodes = new Set<string>();
+        }
+      }
 
-  const totals = useMemo(() => {
-    if (reportType === 'DIFERENCIAS') {
-      return mappedRows.reduce(
-        (acc: any, row: any) => {
-          acc.stock += row.piezasStock || 0;
-          acc.fisico += row.piezasFisico || 0;
-          acc.diferencia += row.diferencia || 0;
-          if ((row.diferencia || 0) !== 0) acc.costalesConDiferencia += 1;
-          return acc;
-        },
-        { stock: 0, fisico: 0, diferencia: 0, costalesConDiferencia: 0 }
-      );
-    }
-
-    return {
-      totalCostales: mappedRows.length,
-      totalPiezas: mappedRows.reduce((acc: number, row: any) => acc + (row.piezas || 0), 0),
-    };
-  }, [mappedRows, reportType]);
-
-  const generateDifferenceReport = async () => {
-    const tienda = user?.tienda || 'ALL';
-    const [stockRes, openedRes] = await Promise.all([
-      gasService.getDetailedReport({ type: 'STOCK', dateFrom, dateTo, tienda, usuario: 'ALL' }),
-      gasService.getDetailedReport({ type: 'ABIERTOS', dateFrom, dateTo, tienda, usuario: 'ALL' }),
-    ]);
-
-    const session = loadInventorySession(user?.tienda || '');
-    const expectedRows: Costal[] = Array.isArray(session?.expectedRows) && session.expectedRows.length > 0
-      ? session.expectedRows
-      : (stockRes.ok ? (stockRes.data || []) : []);
-    const physicalRows: { codigo: string; categoria: string; piezas: number }[] = Array.isArray(session?.scannedRows)
-      ? session.scannedRows
-      : [];
-
-    const openedMap = new Map<string, any>();
-    if (openedRes.ok) {
-      (openedRes.data || []).forEach((item: any) => {
-        openedMap.set(item.codigo_barras, item);
+      stockRows.forEach((item) => {
+        const stockPieces = Number(item.piezas_asignadas || 0);
+        const present = sessionCodes.has(item.codigo_barras);
+        rows.push({
+          id_conteo: `${storeId}-${item.codigo_barras}`,
+          codigo_barras: item.codigo_barras,
+          categoria: item.categoria,
+          tienda: storeId,
+          fecha_conteo: sessionDate,
+          fecha_corte: sessionDate,
+          usuario_conteo: '',
+          stock_piezas: stockPieces,
+          inventario_fisico: present ? stockPieces : 0,
+          diferencia: present ? 0 : -stockPieces,
+        });
       });
-    }
-
-    const physicalMap = new Map<string, { codigo: string; categoria: string; piezas: number }>();
-    physicalRows.forEach((item) => physicalMap.set(item.codigo, item));
-
-    const rows = expectedRows.map((stockItem) => {
-      const physical = physicalMap.get(stockItem.codigo_barras);
-      const opened = openedMap.get(stockItem.codigo_barras);
-      const stockPieces = Number(opened?.piezas_contadas ?? stockItem.piezas_asignadas ?? stockItem.saldo_piezas ?? 0);
-      const physicalPieces = Number(physical?.piezas ?? 0);
-      const difference = physicalPieces - stockPieces;
-      return {
-        codigo_barras: stockItem.codigo_barras,
-        categoria: stockItem.categoria,
-        stock_piezas: stockPieces,
-        inventario_fisico: physicalPieces,
-        diferencia: difference,
-        estado: difference === 0 ? 'CUADRADO' : difference > 0 ? 'SOBRANTE' : 'FALTANTE',
-      };
-    }).filter((row) => row.diferencia !== 0);
-
-    setResults(rows);
-  };
-
-  const generateReport = async () => {
-    setLoading(true);
-    try {
-      if (reportType === 'DIFERENCIAS') {
-        await generateDifferenceReport();
-        return;
-      }
-      const tienda = user?.rol === Role.ADMIN || user?.rol === Role.ADMIN_2 ? 'ALL' : (user?.tienda || 'ALL');
-      const res: any = await gasService.getDetailedReport({ type: reportType, dateFrom, dateTo, tienda, usuario: 'ALL' });
-      if (res.ok) setResults(res.data || []);
-      else setResults([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const exportExcel = () => {
-    if (mappedRows.length === 0) return;
-    const exportRows: any[] = [];
-
-    groupedRows.forEach(([category, rows]) => {
-      if (reportType === 'DIFERENCIAS') {
-        exportRows.push({ 'Código de costal': '', 'Categoría': category, 'Piezas stock': '', 'Piezas físico': '', 'Diferencia': '', 'Estado': 'ENCABEZADO CATEGORÍA' });
-        rows.forEach((row: any) => {
-          exportRows.push({
-            'Código de costal': row.codigo,
-            'Categoría': row.categoria,
-            'Piezas stock': row.piezasStock,
-            'Piezas físico': row.piezasFisico,
-            'Diferencia': row.diferencia,
-            'Estado': row.estado,
-          });
-        });
-        exportRows.push({
-          'Código de costal': `Subtotal ${category}`,
-          'Categoría': category,
-          'Piezas stock': rows.reduce((acc: number, row: any) => acc + (row.piezasStock || 0), 0),
-          'Piezas físico': rows.reduce((acc: number, row: any) => acc + (row.piezasFisico || 0), 0),
-          'Diferencia': rows.reduce((acc: number, row: any) => acc + (row.diferencia || 0), 0),
-          'Estado': 'SUBTOTAL',
-        });
-      } else {
-        exportRows.push({ 'Código de costal': '', 'Categoría': category, 'Piezas': '', 'Tipo': 'ENCABEZADO CATEGORÍA' });
-        rows.forEach((row: any) => {
-          exportRows.push({
-            'Código de costal': row.codigo,
-            'Categoría': row.categoria,
-            'Piezas': row.piezas,
-            'Tipo': reportType,
-          });
-        });
-        exportRows.push({
-          'Código de costal': `Subtotal ${category}`,
-          'Categoría': category,
-          'Piezas': rows.reduce((acc: number, row: any) => acc + (row.piezas || 0), 0),
-          'Tipo': 'SUBTOTAL',
-        });
-      }
     });
 
-    if (reportType === 'DIFERENCIAS') {
-      exportRows.push({
-        'Código de costal': 'TOTALES GENERALES',
-        'Categoría': 'TODAS',
-        'Piezas stock': totals.stock,
-        'Piezas físico': totals.fisico,
-        'Diferencia': totals.diferencia,
-        'Estado': 'TOTAL GENERAL',
-      });
-    } else {
-      exportRows.push({
-        'Código de costal': 'TOTALES GENERALES',
-        'Categoría': 'TODAS',
-        'Piezas': totals.totalPiezas,
-        'Tipo': 'TOTAL GENERAL',
-      });
-    }
+    return rows;
+  }, [results, selectedStore, stores]);
 
-    const ws = XLSX.utils.json_to_sheet(exportRows);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Reportes');
-    XLSX.writeFile(wb, `reporte_${reportType.toLowerCase()}_${dateFrom}_${dateTo}.xlsx`);
+  const groupedRows = useMemo(() => {
+    const sourceRows = reportType === 'DIFERENCIAS' ? inventoryDifferenceRows : results;
+    const grouped = sourceRows.reduce((acc: Record<string, any[]>, row: any) => {
+      const category = row.categoria || 'SIN CATEGORÍA';
+      if (!acc[category]) acc[category] = [];
+      acc[category].push(row);
+      return acc;
+    }, {} as Record<string, any[]>);
+    return Object.entries(grouped).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [reportType, inventoryDifferenceRows, results]);
+
+  const totals = useMemo(() => {
+    const sourceRows = reportType === 'DIFERENCIAS' ? inventoryDifferenceRows : results;
+    return sourceRows.reduce((acc, row: any) => {
+      acc.stock += Number(row.piezas_asignadas ?? row.stock_piezas ?? 0);
+      acc.fisico += Number(row.inventario_fisico ?? 0);
+      acc.diff += Number(row.diferencia ?? 0);
+      return acc;
+    }, { stock: 0, fisico: 0, diff: 0, rows: sourceRows.length });
+  }, [reportType, inventoryDifferenceRows, results]);
+
+  const generateReport = async () => {
+    setLoadingReport(true);
+    try {
+      const tiendaParam = reportType === 'DIFERENCIAS' ? (selectedStore === 'ALL' ? 'ALL' : selectedStore) : (selectedStore === 'ALL' ? 'ALL' : selectedStore);
+      const typeParam = reportType === 'DIFERENCIAS' ? 'STOCK' : reportType;
+      const res: any = await gasService.getDetailedReport({ type: typeParam, dateFrom, dateTo, tienda: tiendaParam, usuario: 'ALL' });
+      if (res.ok) setResults(res.data || []);
+      else showNotify('error', res.error || 'No se pudo generar el reporte.');
+    } finally {
+      setLoadingReport(false);
+    }
   };
 
   return (
     <div className="space-y-6 pb-20">
       <div className="bg-white p-8 rounded-[40px] shadow-sm space-y-6">
-        <h2 className="text-2xl font-black text-center">{reportType === 'DIFERENCIAS' ? 'Diferencias Inventario Físico vs Stock' : 'Reportes por Costal'}</h2>
+        <h2 className="text-2xl font-black text-center">Reportes y Auditoría</h2>
         <div className="grid grid-cols-2 gap-4">
           <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="p-3 bg-gray-50 rounded-2xl outline-none text-sm" />
           <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="p-3 bg-gray-50 rounded-2xl outline-none text-sm" />
         </div>
+        <select value={selectedStore} onChange={(e) => setSelectedStore(e.target.value)} disabled={!isAdminViewer} className="w-full p-4 bg-gray-50 rounded-2xl outline-none font-black text-gray-700 disabled:opacity-70">
+          {isAdminViewer && <option value="ALL">Todas las sedes</option>}
+          {stores.map((store: Store) => <option key={store.id_tienda} value={store.id_tienda}>{store.nombre}</option>)}
+        </select>
         <div className="grid grid-cols-2 gap-2 p-1 bg-gray-50 rounded-3xl">
-          {['STOCK', 'RECIBIDOS', 'ABIERTOS', 'DIFERENCIAS'].map((t) => (
-            <button key={t} onClick={() => setReportType(t as any)} className={`flex-1 py-3 rounded-2xl text-[8px] font-black transition-all ${reportType === t ? 'bg-indigo-600 text-white' : 'text-gray-400'}`}>{t}</button>
+          {['STOCK', 'RECIBIDOS', 'ABIERTOS', 'DIFERENCIAS'].map(t => (
+            <button key={t} onClick={() => setReportType(t)} className={`py-3 rounded-2xl text-[9px] font-black transition-all ${reportType === t ? 'bg-indigo-600 text-white' : 'text-gray-400'}`}>{t}</button>
           ))}
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <button onClick={generateReport} disabled={loading} className="w-full bg-gray-900 text-white font-black py-4 rounded-[28px] text-xs uppercase tracking-widest shadow-xl disabled:opacity-50">{loading ? 'Generando...' : 'Generar consulta'}</button>
-          <button onClick={exportExcel} disabled={mappedRows.length === 0} className="w-full bg-emerald-600 text-white font-black py-4 rounded-[28px] text-xs uppercase tracking-widest shadow-xl disabled:opacity-50">Exportar Excel</button>
-        </div>
-        {reportType === 'DIFERENCIAS' && (
-          <div className="rounded-3xl bg-amber-50 px-4 py-3 text-[11px] font-bold text-amber-700">
-            Este reporte compara la última toma de inventario guardada en este dispositivo contra el stock actual de la tienda.
-          </div>
-        )}
+        <button onClick={generateReport} disabled={loadingReport} className="w-full bg-gray-900 text-white font-black py-4 rounded-[28px] text-xs uppercase tracking-widest shadow-xl disabled:opacity-50">{loadingReport ? 'Generando...' : 'Generar Consulta'}</button>
       </div>
 
-      {reportType === 'DIFERENCIAS' ? (
-        <>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-indigo-50 rounded-[32px] p-5 text-center">
-              <p className="text-[10px] font-black uppercase tracking-widest text-indigo-500">Piezas stock</p>
-              <p className="text-3xl font-black text-indigo-700 mt-2">{totals.stock}</p>
-            </div>
-            <div className="bg-orange-50 rounded-[32px] p-5 text-center">
-              <p className="text-[10px] font-black uppercase tracking-widest text-orange-500">Piezas físico</p>
-              <p className="text-3xl font-black text-orange-700 mt-2">{totals.fisico}</p>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-red-50 rounded-[32px] p-5 text-center">
-              <p className="text-[10px] font-black uppercase tracking-widest text-red-500">Costales con diferencia</p>
-              <p className="text-3xl font-black text-red-700 mt-2">{totals.costalesConDiferencia}</p>
-            </div>
-            <div className={`rounded-[32px] p-5 text-center ${totals.diferencia === 0 ? 'bg-emerald-50' : totals.diferencia > 0 ? 'bg-blue-50' : 'bg-red-50'}`}>
-              <p className="text-[10px] font-black uppercase tracking-widest">Diferencia general</p>
-              <p className="text-3xl font-black mt-2">{totals.diferencia > 0 ? `+${totals.diferencia}` : totals.diferencia}</p>
-            </div>
-          </div>
-        </>
-      ) : (
-        <div className="grid grid-cols-2 gap-3">
-          <div className="bg-indigo-50 rounded-[32px] p-5 text-center">
-            <p className="text-[10px] font-black uppercase tracking-widest text-indigo-500">Total costales</p>
-            <p className="text-3xl font-black text-indigo-700 mt-2">{totals.totalCostales}</p>
-          </div>
-          <div className="bg-green-50 rounded-[32px] p-5 text-center">
-            <p className="text-[10px] font-black uppercase tracking-widest text-green-500">Total piezas</p>
-            <p className="text-3xl font-black text-green-700 mt-2">{totals.totalPiezas}</p>
-          </div>
-        </div>
-      )}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="bg-white p-5 rounded-3xl shadow-sm"><div className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Total registros</div><div className="text-2xl font-black text-gray-900 mt-1">{totals.rows}</div></div>
+        <div className="bg-white p-5 rounded-3xl shadow-sm"><div className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Total piezas stock</div><div className="text-2xl font-black text-gray-900 mt-1">{totals.stock}</div></div>
+        {reportType === 'DIFERENCIAS' && (
+          <>
+            <div className="bg-white p-5 rounded-3xl shadow-sm"><div className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Inventario físico</div><div className="text-2xl font-black text-gray-900 mt-1">{totals.fisico}</div></div>
+            <div className="bg-white p-5 rounded-3xl shadow-sm"><div className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Diferencia general</div><div className={`text-2xl font-black mt-1 ${totals.diff === 0 ? 'text-gray-900' : totals.diff > 0 ? 'text-green-600' : 'text-red-600'}`}>{totals.diff > 0 ? '+' : ''}{totals.diff}</div></div>
+          </>
+        )}
+      </div>
 
       <div className="space-y-4">
-        {groupedRows.length === 0 ? (
-          <div className="bg-white p-8 rounded-[32px] shadow-sm text-center text-gray-400 font-black border border-dashed">No hay resultados para el rango seleccionado.</div>
-        ) : (
-          groupedRows.map(([category, rows]) => {
-            return (
-              <div key={category} className="bg-white p-6 rounded-[32px] shadow-sm space-y-3">
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest">{category}</h3>
-                    <p className="text-[10px] font-bold text-gray-400">Costales: {rows.length}</p>
-                  </div>
-                  {reportType === 'DIFERENCIAS' ? (
-                    <div className="bg-gray-900 text-white px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest">
-                      Dif.: {rows.reduce((acc: number, row: any) => acc + (row.diferencia || 0), 0)}
-                    </div>
-                  ) : (
-                    <div className="bg-gray-900 text-white px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest">
-                      Piezas: {rows.reduce((acc: number, row: any) => acc + (row.piezas || 0), 0)}
-                    </div>
-                  )}
+        {groupedRows.map(([category, rows]) => {
+          const categoryStock = rows.reduce((acc, row: any) => acc + Number(row.piezas_asignadas ?? row.stock_piezas ?? 0), 0);
+          const categoryFisico = rows.reduce((acc, row: any) => acc + Number(row.inventario_fisico ?? 0), 0);
+          const categoryDiff = rows.reduce((acc, row: any) => acc + Number(row.diferencia ?? 0), 0);
+          return (
+            <div key={category} className="bg-white p-5 rounded-[32px] shadow-sm space-y-4">
+              <div className="flex items-center justify-between gap-4 border-b border-gray-100 pb-3">
+                <div>
+                  <h3 className="font-black text-gray-900 text-lg tracking-tight">{category}</h3>
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Código de costal · categoría · piezas</p>
                 </div>
-                <div className="overflow-hidden rounded-3xl border border-gray-100">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-gray-50 text-gray-500 uppercase tracking-widest text-[10px]">
-                      <tr>
-                        <th className="px-4 py-3">Código de costal</th>
-                        <th className="px-4 py-3">Categoría</th>
-                        {reportType === 'DIFERENCIAS' ? (
-                          <>
-                            <th className="px-4 py-3 text-right">Stock</th>
-                            <th className="px-4 py-3 text-right">Físico</th>
-                            <th className="px-4 py-3 text-right">Diferencia</th>
-                          </>
-                        ) : (
-                          <th className="px-4 py-3 text-right">Piezas</th>
-                        )}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map((row: any) => (
-                        <tr key={`${category}-${row.codigo}`} className="border-t border-gray-100">
-                          <td className="px-4 py-3 font-black text-gray-900">{row.codigo}</td>
-                          <td className="px-4 py-3 font-bold text-gray-500">{row.categoria}</td>
-                          {reportType === 'DIFERENCIAS' ? (
-                            <>
-                              <td className="px-4 py-3 font-black text-right text-gray-700">{row.piezasStock}</td>
-                              <td className="px-4 py-3 font-black text-right text-indigo-600">{row.piezasFisico}</td>
-                              <td className={`px-4 py-3 font-black text-right ${row.diferencia > 0 ? 'text-blue-600' : 'text-red-600'}`}>{row.diferencia > 0 ? `+${row.diferencia}` : row.diferencia}</td>
-                            </>
-                          ) : (
-                            <td className="px-4 py-3 font-black text-right text-indigo-600">{row.piezas}</td>
-                          )}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="text-right text-[10px] font-black uppercase tracking-widest">
+                  <div className="text-gray-400">Stock: <span className="text-gray-900">{categoryStock}</span></div>
+                  {reportType === 'DIFERENCIAS' && <div className={categoryDiff === 0 ? 'text-gray-400' : categoryDiff > 0 ? 'text-green-600' : 'text-red-600'}>Dif: {categoryDiff > 0 ? '+' : ''}{categoryDiff}</div>}
                 </div>
               </div>
-            );
-          })
-        )}
-      </div>
-
-      <div className="bg-white p-6 rounded-[32px] shadow-sm border-2 border-indigo-100">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-widest text-indigo-500">Totales generales</p>
-            <h3 className="text-lg font-black text-gray-900 mt-1">Resumen final del reporte</h3>
-          </div>
-          <div className="text-right">
-            {reportType === 'DIFERENCIAS' ? (
-              <>
-                <p className="text-sm font-black text-gray-900">Stock: {totals.stock}</p>
-                <p className="text-sm font-black text-indigo-600">Físico: {totals.fisico}</p>
-                <p className="text-sm font-black text-red-600">Diferencia: {totals.diferencia > 0 ? `+${totals.diferencia}` : totals.diferencia}</p>
-              </>
-            ) : (
-              <>
-                <p className="text-sm font-black text-gray-900">Costales: {totals.totalCostales}</p>
-                <p className="text-sm font-black text-indigo-600">Piezas: {totals.totalPiezas}</p>
-              </>
-            )}
-          </div>
-        </div>
+              <div className="space-y-3">
+                {rows.map((item: any, i: number) => (
+                  <div key={`${item.codigo_barras}-${i}`} className="bg-gray-50 rounded-3xl px-4 py-4 flex justify-between items-center gap-3">
+                    <div className="min-w-0">
+                      <p className="font-black text-gray-900 text-sm tracking-tight break-all">{item.codigo_barras || 'N/A'}</p>
+                      <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">{item.tienda} · {item.categoria}</p>
+                      <p className="text-[10px] font-bold text-indigo-500 mt-1">Piezas: {Number(item.piezas_asignadas ?? item.stock_piezas ?? 0)}</p>
+                    </div>
+                    {reportType === 'DIFERENCIAS' ? (
+                      <div className="text-right">
+                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Físico</p>
+                        <p className="font-black text-gray-900">{Number(item.inventario_fisico || 0)}</p>
+                        <p className={`text-xs font-black mt-1 ${Number(item.diferencia || 0) === 0 ? 'text-gray-500' : Number(item.diferencia || 0) > 0 ? 'text-green-600' : 'text-red-600'}`}>{Number(item.diferencia || 0) > 0 ? '+' : ''}{Number(item.diferencia || 0)}</p>
+                      </div>
+                    ) : item.diferencia !== undefined ? (
+                      <div className={`text-xs font-black p-3 rounded-2xl ${item.diferencia >= 0 ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>{item.diferencia > 0 ? '+' : ''}{item.diferencia}</div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+        {groupedRows.length === 0 && <div className="text-center p-16 text-gray-300 font-black border border-dashed rounded-[40px]">Sin resultados para los filtros seleccionados.</div>}
       </div>
     </div>
   );
 };
-
 
 export default App;
