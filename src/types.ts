@@ -58,3 +58,19 @@ export interface Store {
   nombre: string;
   direccion?: string;
 }
+
+
+export interface InventoryCount {
+  id_conteo: string;
+  codigo_barras: string;
+  categoria: string;
+  tienda: string;
+  fecha_conteo: string;
+  fecha_corte: string;
+  usuario_conteo: string;
+  stock_piezas: number;
+  inventario_fisico: number;
+  diferencia: number;
+}
+
+export interface InventoryDifferenceRow extends InventoryCount {}
