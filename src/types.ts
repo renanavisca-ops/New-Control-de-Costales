@@ -44,9 +44,22 @@ export interface Apertura {
   diferencia: number;
 }
 
+
+export interface InventoryCount {
+  id_inventario: string;
+  codigo_barras: string;
+  categoria: string;
+  tienda: string;
+  usuario_inventario: string;
+  fecha_inventario: string;
+  piezas_sistema: number;
+  piezas_contadas: number;
+  diferencia: number;
+}
+
 export interface OfflineAction {
   id: string;
-  type: 'ADD_COSTAL' | 'OPEN_COSTAL' | 'TRANSFER_COSTAL';
+  type: 'ADD_COSTAL' | 'OPEN_COSTAL' | 'TRANSFER_COSTAL' | 'ADD_INVENTORY_COUNT';
   payload: any;
   timestamp: number;
   status: 'pending' | 'syncing' | 'error';
@@ -57,20 +70,6 @@ export interface Store {
   id_tienda: string;
   nombre: string;
   direccion?: string;
-}
-
-
-export interface InventoryCount {
-  id_conteo: string;
-  codigo_barras: string;
-  categoria: string;
-  tienda: string;
-  fecha_conteo: string;
-  fecha_corte: string;
-  usuario_conteo: string;
-  stock_piezas: number;
-  inventario_fisico: number;
-  diferencia: number;
 }
 
 export interface InventoryDifferenceRow extends InventoryCount {}
