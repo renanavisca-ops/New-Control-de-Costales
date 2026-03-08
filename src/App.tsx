@@ -33,8 +33,33 @@ const generateUUID = () => {
   });
 };
 
+const getInventorySessionStorageKey = (tienda: string) => `cc_inventory_session_${tienda || 'GLOBAL'}`;
+
+const saveInventorySession = (tienda: string, payload: { scannedRows: { codigo: string; categoria: string; piezas: number }[]; expectedRows: Costal[]; updatedAt?: string }) => {
+  const key = getInventorySessionStorageKey(tienda);
+  localStorage.setItem(
+    key,
+    JSON.stringify({
+      tienda,
+      scannedRows: payload.scannedRows,
+      expectedRows: payload.expectedRows,
+      updatedAt: payload.updatedAt || new Date().toISOString(),
+    })
+  );
+};
+
+const loadInventorySession = (tienda: string) => {
+  const raw = localStorage.getItem(getInventorySessionStorageKey(tienda));
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+};
+
 const canAccessAdmin = (user: User | null) => user?.rol === Role.ADMIN || user?.rol === Role.ADMIN_2;
-const canAccessReports = (user: User | null) => user?.rol === Role.ADMIN || user?.rol === Role.ADMIN_2;
+const canAccessReports = (user: User | null) => !!user && [Role.ADMIN, Role.ADMIN_2, Role.SUPERVISOR, Role.OPERADOR].includes(user.rol);
 const isRootAdmin = (user: User | null) => (user?.email || '').toLowerCase() === ROOT_ADMIN_EMAIL;
 
 const normalizeCategory = (value: string) => String(value || '').trim().toUpperCase();
@@ -1541,6 +1566,17 @@ const InventarioView = ({ user, showNotify }: any) => {
   const totalPendingCostales = missingRows.length;
   const totalPendingPieces = missingRows.reduce((acc, item) => acc + (item.piezas_asignadas || 0), 0);
 
+  useEffect(() => {
+    saveInventorySession(user?.tienda || '', {
+      scannedRows: scannedRows.map((item) => ({
+        codigo: item.codigo_barras,
+        categoria: item.categoria,
+        piezas: Number(item.piezas_asignadas || 0),
+      })),
+      expectedRows: expected,
+    });
+  }, [expected, scannedRows, user]);
+
   return (
     <div className="space-y-6 pb-20">
       <div className="bg-white p-8 rounded-[32px] shadow-sm space-y-4">
@@ -1619,34 +1655,112 @@ const InventarioView = ({ user, showNotify }: any) => {
   );
 };
 
+
 const ReportesView = ({ user }: any) => {
   const [dateFrom, setDateFrom] = useState(new Date().toISOString().split('T')[0]);
   const [dateTo, setDateTo] = useState(new Date().toISOString().split('T')[0]);
-  const [reportType, setReportType] = useState('RECIBIDOS');
+  const [reportType, setReportType] = useState<'STOCK' | 'RECIBIDOS' | 'ABIERTOS' | 'DIFERENCIAS'>('RECIBIDOS');
   const [results, setResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
   const mappedRows = useMemo(() => {
+    if (reportType === 'DIFERENCIAS') {
+      return results.map((item) => ({
+        codigo: item.codigo_barras || '',
+        categoria: item.categoria || 'SIN CATEGORÍA',
+        piezasStock: Number(item.stock_piezas ?? 0),
+        piezasFisico: Number(item.inventario_fisico ?? 0),
+        diferencia: Number(item.diferencia ?? 0),
+        estado: item.estado || (Number(item.diferencia ?? 0) === 0 ? 'CUADRADO' : Number(item.diferencia ?? 0) > 0 ? 'SOBRANTE' : 'FALTANTE'),
+      }));
+    }
+
     return results.map((item) => ({
       codigo: item.codigo_barras || '',
       categoria: item.categoria || 'SIN CATEGORÍA',
-      piezas:
-        reportType === 'ABIERTOS'
-          ? Number(item.piezas_contadas ?? item.piezas_asignadas ?? 0)
-          : Number(item.piezas_asignadas ?? item.stock_piezas ?? 0),
-      fecha: item.fecha_recepcion || item.fecha_apertura || item.fecha_conteo || '',
+      piezas: reportType === 'ABIERTOS'
+        ? Number(item.piezas_contadas ?? item.piezas_asignadas ?? 0)
+        : Number(item.piezas_asignadas ?? item.stock_piezas ?? 0),
+      fecha: item.fecha_recepcion || item.fecha_apertura || '',
       tienda: item.tienda || user?.tienda || '',
     }));
   }, [reportType, results, user]);
 
   const groupedRows = useMemo(() => groupRowsByCategory(mappedRows), [mappedRows]);
-  const totalGeneralCostales = mappedRows.length;
-  const totalGeneralPiezas = mappedRows.reduce((acc, row) => acc + (row.piezas || 0), 0);
+
+  const totals = useMemo(() => {
+    if (reportType === 'DIFERENCIAS') {
+      return mappedRows.reduce(
+        (acc: any, row: any) => {
+          acc.stock += row.piezasStock || 0;
+          acc.fisico += row.piezasFisico || 0;
+          acc.diferencia += row.diferencia || 0;
+          if ((row.diferencia || 0) !== 0) acc.costalesConDiferencia += 1;
+          return acc;
+        },
+        { stock: 0, fisico: 0, diferencia: 0, costalesConDiferencia: 0 }
+      );
+    }
+
+    return {
+      totalCostales: mappedRows.length,
+      totalPiezas: mappedRows.reduce((acc: number, row: any) => acc + (row.piezas || 0), 0),
+    };
+  }, [mappedRows, reportType]);
+
+  const generateDifferenceReport = async () => {
+    const tienda = user?.tienda || 'ALL';
+    const [stockRes, openedRes] = await Promise.all([
+      gasService.getDetailedReport({ type: 'STOCK', dateFrom, dateTo, tienda, usuario: 'ALL' }),
+      gasService.getDetailedReport({ type: 'ABIERTOS', dateFrom, dateTo, tienda, usuario: 'ALL' }),
+    ]);
+
+    const session = loadInventorySession(user?.tienda || '');
+    const expectedRows: Costal[] = Array.isArray(session?.expectedRows) && session.expectedRows.length > 0
+      ? session.expectedRows
+      : (stockRes.ok ? (stockRes.data || []) : []);
+    const physicalRows: { codigo: string; categoria: string; piezas: number }[] = Array.isArray(session?.scannedRows)
+      ? session.scannedRows
+      : [];
+
+    const openedMap = new Map<string, any>();
+    if (openedRes.ok) {
+      (openedRes.data || []).forEach((item: any) => {
+        openedMap.set(item.codigo_barras, item);
+      });
+    }
+
+    const physicalMap = new Map<string, { codigo: string; categoria: string; piezas: number }>();
+    physicalRows.forEach((item) => physicalMap.set(item.codigo, item));
+
+    const rows = expectedRows.map((stockItem) => {
+      const physical = physicalMap.get(stockItem.codigo_barras);
+      const opened = openedMap.get(stockItem.codigo_barras);
+      const stockPieces = Number(opened?.piezas_contadas ?? stockItem.piezas_asignadas ?? stockItem.saldo_piezas ?? 0);
+      const physicalPieces = Number(physical?.piezas ?? 0);
+      const difference = physicalPieces - stockPieces;
+      return {
+        codigo_barras: stockItem.codigo_barras,
+        categoria: stockItem.categoria,
+        stock_piezas: stockPieces,
+        inventario_fisico: physicalPieces,
+        diferencia: difference,
+        estado: difference === 0 ? 'CUADRADO' : difference > 0 ? 'SOBRANTE' : 'FALTANTE',
+      };
+    }).filter((row) => row.diferencia !== 0);
+
+    setResults(rows);
+  };
 
   const generateReport = async () => {
     setLoading(true);
     try {
-      const res: any = await gasService.getDetailedReport({ type: reportType, dateFrom, dateTo, tienda: 'ALL', usuario: 'ALL' });
+      if (reportType === 'DIFERENCIAS') {
+        await generateDifferenceReport();
+        return;
+      }
+      const tienda = user?.rol === Role.ADMIN || user?.rol === Role.ADMIN_2 ? 'ALL' : (user?.tienda || 'ALL');
+      const res: any = await gasService.getDetailedReport({ type: reportType, dateFrom, dateTo, tienda, usuario: 'ALL' });
       if (res.ok) setResults(res.data || []);
       else setResults([]);
     } finally {
@@ -1656,31 +1770,65 @@ const ReportesView = ({ user }: any) => {
 
   const exportExcel = () => {
     if (mappedRows.length === 0) return;
-
     const exportRows: any[] = [];
+
     groupedRows.forEach(([category, rows]) => {
-      exportRows.push({ 'Código de costal': '', 'Categoría': category, 'Piezas': '', 'Tipo': 'ENCABEZADO CATEGORÍA' });
-      rows.forEach((row) => {
-        exportRows.push({
-          'Código de costal': row.codigo,
-          'Categoría': row.categoria,
-          'Piezas': row.piezas,
-          'Tipo': reportType,
+      if (reportType === 'DIFERENCIAS') {
+        exportRows.push({ 'Código de costal': '', 'Categoría': category, 'Piezas stock': '', 'Piezas físico': '', 'Diferencia': '', 'Estado': 'ENCABEZADO CATEGORÍA' });
+        rows.forEach((row: any) => {
+          exportRows.push({
+            'Código de costal': row.codigo,
+            'Categoría': row.categoria,
+            'Piezas stock': row.piezasStock,
+            'Piezas físico': row.piezasFisico,
+            'Diferencia': row.diferencia,
+            'Estado': row.estado,
+          });
         });
-      });
+        exportRows.push({
+          'Código de costal': `Subtotal ${category}`,
+          'Categoría': category,
+          'Piezas stock': rows.reduce((acc: number, row: any) => acc + (row.piezasStock || 0), 0),
+          'Piezas físico': rows.reduce((acc: number, row: any) => acc + (row.piezasFisico || 0), 0),
+          'Diferencia': rows.reduce((acc: number, row: any) => acc + (row.diferencia || 0), 0),
+          'Estado': 'SUBTOTAL',
+        });
+      } else {
+        exportRows.push({ 'Código de costal': '', 'Categoría': category, 'Piezas': '', 'Tipo': 'ENCABEZADO CATEGORÍA' });
+        rows.forEach((row: any) => {
+          exportRows.push({
+            'Código de costal': row.codigo,
+            'Categoría': row.categoria,
+            'Piezas': row.piezas,
+            'Tipo': reportType,
+          });
+        });
+        exportRows.push({
+          'Código de costal': `Subtotal ${category}`,
+          'Categoría': category,
+          'Piezas': rows.reduce((acc: number, row: any) => acc + (row.piezas || 0), 0),
+          'Tipo': 'SUBTOTAL',
+        });
+      }
+    });
+
+    if (reportType === 'DIFERENCIAS') {
       exportRows.push({
-        'Código de costal': `Subtotal ${category}`,
-        'Categoría': category,
-        'Piezas': rows.reduce((acc, row) => acc + (row.piezas || 0), 0),
-        'Tipo': 'SUBTOTAL',
+        'Código de costal': 'TOTALES GENERALES',
+        'Categoría': 'TODAS',
+        'Piezas stock': totals.stock,
+        'Piezas físico': totals.fisico,
+        'Diferencia': totals.diferencia,
+        'Estado': 'TOTAL GENERAL',
       });
-    });
-    exportRows.push({
-      'Código de costal': 'TOTALES GENERALES',
-      'Categoría': 'TODAS',
-      'Piezas': totalGeneralPiezas,
-      'Tipo': 'TOTAL GENERAL',
-    });
+    } else {
+      exportRows.push({
+        'Código de costal': 'TOTALES GENERALES',
+        'Categoría': 'TODAS',
+        'Piezas': totals.totalPiezas,
+        'Tipo': 'TOTAL GENERAL',
+      });
+    }
 
     const ws = XLSX.utils.json_to_sheet(exportRows);
     const wb = XLSX.utils.book_new();
@@ -1691,39 +1839,68 @@ const ReportesView = ({ user }: any) => {
   return (
     <div className="space-y-6 pb-20">
       <div className="bg-white p-8 rounded-[40px] shadow-sm space-y-6">
-        <h2 className="text-2xl font-black text-center">Reportes por Costal</h2>
+        <h2 className="text-2xl font-black text-center">{reportType === 'DIFERENCIAS' ? 'Diferencias Inventario Físico vs Stock' : 'Reportes por Costal'}</h2>
         <div className="grid grid-cols-2 gap-4">
           <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="p-3 bg-gray-50 rounded-2xl outline-none text-sm" />
           <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="p-3 bg-gray-50 rounded-2xl outline-none text-sm" />
         </div>
-        <div className="flex gap-2 p-1 bg-gray-50 rounded-3xl">
-          {['STOCK', 'RECIBIDOS', 'ABIERTOS'].map(t => (
-            <button key={t} onClick={() => setReportType(t)} className={`flex-1 py-3 rounded-2xl text-[8px] font-black transition-all ${reportType === t ? 'bg-indigo-600 text-white' : 'text-gray-400'}`}>{t}</button>
+        <div className="grid grid-cols-2 gap-2 p-1 bg-gray-50 rounded-3xl">
+          {['STOCK', 'RECIBIDOS', 'ABIERTOS', 'DIFERENCIAS'].map((t) => (
+            <button key={t} onClick={() => setReportType(t as any)} className={`flex-1 py-3 rounded-2xl text-[8px] font-black transition-all ${reportType === t ? 'bg-indigo-600 text-white' : 'text-gray-400'}`}>{t}</button>
           ))}
         </div>
         <div className="grid grid-cols-2 gap-3">
           <button onClick={generateReport} disabled={loading} className="w-full bg-gray-900 text-white font-black py-4 rounded-[28px] text-xs uppercase tracking-widest shadow-xl disabled:opacity-50">{loading ? 'Generando...' : 'Generar consulta'}</button>
           <button onClick={exportExcel} disabled={mappedRows.length === 0} className="w-full bg-emerald-600 text-white font-black py-4 rounded-[28px] text-xs uppercase tracking-widest shadow-xl disabled:opacity-50">Exportar Excel</button>
         </div>
+        {reportType === 'DIFERENCIAS' && (
+          <div className="rounded-3xl bg-amber-50 px-4 py-3 text-[11px] font-bold text-amber-700">
+            Este reporte compara la última toma de inventario guardada en este dispositivo contra el stock actual de la tienda.
+          </div>
+        )}
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div className="bg-indigo-50 rounded-[32px] p-5 text-center">
-          <p className="text-[10px] font-black uppercase tracking-widest text-indigo-500">Total costales</p>
-          <p className="text-3xl font-black text-indigo-700 mt-2">{totalGeneralCostales}</p>
+      {reportType === 'DIFERENCIAS' ? (
+        <>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-indigo-50 rounded-[32px] p-5 text-center">
+              <p className="text-[10px] font-black uppercase tracking-widest text-indigo-500">Piezas stock</p>
+              <p className="text-3xl font-black text-indigo-700 mt-2">{totals.stock}</p>
+            </div>
+            <div className="bg-orange-50 rounded-[32px] p-5 text-center">
+              <p className="text-[10px] font-black uppercase tracking-widest text-orange-500">Piezas físico</p>
+              <p className="text-3xl font-black text-orange-700 mt-2">{totals.fisico}</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-red-50 rounded-[32px] p-5 text-center">
+              <p className="text-[10px] font-black uppercase tracking-widest text-red-500">Costales con diferencia</p>
+              <p className="text-3xl font-black text-red-700 mt-2">{totals.costalesConDiferencia}</p>
+            </div>
+            <div className={`rounded-[32px] p-5 text-center ${totals.diferencia === 0 ? 'bg-emerald-50' : totals.diferencia > 0 ? 'bg-blue-50' : 'bg-red-50'}`}>
+              <p className="text-[10px] font-black uppercase tracking-widest">Diferencia general</p>
+              <p className="text-3xl font-black mt-2">{totals.diferencia > 0 ? `+${totals.diferencia}` : totals.diferencia}</p>
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="grid grid-cols-2 gap-3">
+          <div className="bg-indigo-50 rounded-[32px] p-5 text-center">
+            <p className="text-[10px] font-black uppercase tracking-widest text-indigo-500">Total costales</p>
+            <p className="text-3xl font-black text-indigo-700 mt-2">{totals.totalCostales}</p>
+          </div>
+          <div className="bg-green-50 rounded-[32px] p-5 text-center">
+            <p className="text-[10px] font-black uppercase tracking-widest text-green-500">Total piezas</p>
+            <p className="text-3xl font-black text-green-700 mt-2">{totals.totalPiezas}</p>
+          </div>
         </div>
-        <div className="bg-green-50 rounded-[32px] p-5 text-center">
-          <p className="text-[10px] font-black uppercase tracking-widest text-green-500">Total piezas</p>
-          <p className="text-3xl font-black text-green-700 mt-2">{totalGeneralPiezas}</p>
-        </div>
-      </div>
+      )}
 
       <div className="space-y-4">
         {groupedRows.length === 0 ? (
           <div className="bg-white p-8 rounded-[32px] shadow-sm text-center text-gray-400 font-black border border-dashed">No hay resultados para el rango seleccionado.</div>
         ) : (
           groupedRows.map(([category, rows]) => {
-            const subtotalPieces = rows.reduce((acc, row) => acc + (row.piezas || 0), 0);
             return (
               <div key={category} className="bg-white p-6 rounded-[32px] shadow-sm space-y-3">
                 <div className="flex items-center justify-between gap-4">
@@ -1731,9 +1908,15 @@ const ReportesView = ({ user }: any) => {
                     <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest">{category}</h3>
                     <p className="text-[10px] font-bold text-gray-400">Costales: {rows.length}</p>
                   </div>
-                  <div className="bg-gray-900 text-white px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest">
-                    Piezas: {subtotalPieces}
-                  </div>
+                  {reportType === 'DIFERENCIAS' ? (
+                    <div className="bg-gray-900 text-white px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest">
+                      Dif.: {rows.reduce((acc: number, row: any) => acc + (row.diferencia || 0), 0)}
+                    </div>
+                  ) : (
+                    <div className="bg-gray-900 text-white px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest">
+                      Piezas: {rows.reduce((acc: number, row: any) => acc + (row.piezas || 0), 0)}
+                    </div>
+                  )}
                 </div>
                 <div className="overflow-hidden rounded-3xl border border-gray-100">
                   <table className="w-full text-left text-xs">
@@ -1741,25 +1924,34 @@ const ReportesView = ({ user }: any) => {
                       <tr>
                         <th className="px-4 py-3">Código de costal</th>
                         <th className="px-4 py-3">Categoría</th>
-                        <th className="px-4 py-3 text-right">Piezas</th>
+                        {reportType === 'DIFERENCIAS' ? (
+                          <>
+                            <th className="px-4 py-3 text-right">Stock</th>
+                            <th className="px-4 py-3 text-right">Físico</th>
+                            <th className="px-4 py-3 text-right">Diferencia</th>
+                          </>
+                        ) : (
+                          <th className="px-4 py-3 text-right">Piezas</th>
+                        )}
                       </tr>
                     </thead>
                     <tbody>
-                      {rows.map((row) => (
-                        <tr key={`${category}-${row.codigo}-${row.fecha}`} className="border-t border-gray-100">
+                      {rows.map((row: any) => (
+                        <tr key={`${category}-${row.codigo}`} className="border-t border-gray-100">
                           <td className="px-4 py-3 font-black text-gray-900">{row.codigo}</td>
                           <td className="px-4 py-3 font-bold text-gray-500">{row.categoria}</td>
-                          <td className="px-4 py-3 font-black text-right text-indigo-600">{row.piezas}</td>
+                          {reportType === 'DIFERENCIAS' ? (
+                            <>
+                              <td className="px-4 py-3 font-black text-right text-gray-700">{row.piezasStock}</td>
+                              <td className="px-4 py-3 font-black text-right text-indigo-600">{row.piezasFisico}</td>
+                              <td className={`px-4 py-3 font-black text-right ${row.diferencia > 0 ? 'text-blue-600' : 'text-red-600'}`}>{row.diferencia > 0 ? `+${row.diferencia}` : row.diferencia}</td>
+                            </>
+                          ) : (
+                            <td className="px-4 py-3 font-black text-right text-indigo-600">{row.piezas}</td>
+                          )}
                         </tr>
                       ))}
                     </tbody>
-                    <tfoot>
-                      <tr className="border-t-2 border-gray-200 bg-gray-50">
-                        <td className="px-4 py-3 font-black text-gray-900">Subtotal {category}</td>
-                        <td className="px-4 py-3 font-bold text-gray-500">{rows.length} costales</td>
-                        <td className="px-4 py-3 font-black text-right text-gray-900">{subtotalPieces}</td>
-                      </tr>
-                    </tfoot>
                   </table>
                 </div>
               </div>
@@ -1775,13 +1967,24 @@ const ReportesView = ({ user }: any) => {
             <h3 className="text-lg font-black text-gray-900 mt-1">Resumen final del reporte</h3>
           </div>
           <div className="text-right">
-            <p className="text-sm font-black text-gray-900">Costales: {totalGeneralCostales}</p>
-            <p className="text-sm font-black text-indigo-600">Piezas: {totalGeneralPiezas}</p>
+            {reportType === 'DIFERENCIAS' ? (
+              <>
+                <p className="text-sm font-black text-gray-900">Stock: {totals.stock}</p>
+                <p className="text-sm font-black text-indigo-600">Físico: {totals.fisico}</p>
+                <p className="text-sm font-black text-red-600">Diferencia: {totals.diferencia > 0 ? `+${totals.diferencia}` : totals.diferencia}</p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm font-black text-gray-900">Costales: {totals.totalCostales}</p>
+                <p className="text-sm font-black text-indigo-600">Piezas: {totals.totalPiezas}</p>
+              </>
+            )}
           </div>
         </div>
       </div>
     </div>
   );
 };
+
 
 export default App;
