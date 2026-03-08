@@ -1,4 +1,4 @@
-import { Costal, Apertura, User, Role, CostalStatus, Store, InventoryCount } from '../types';
+import { Costal, Apertura, User, Role, CostalStatus, Store } from '../types';
 
 const GAS_URL =
   import.meta.env.VITE_GAS_URL ||
@@ -9,7 +9,6 @@ const MOCK_DB_STORES = 'cc_mock_db_stores';
 const MOCK_DB_APERTURAS = 'cc_mock_db_aperturas';
 const MOCK_DB_USERS = 'cc_mock_db_users';
 const MOCK_DB_AUTH = 'cc_mock_db_auth';
-const MOCK_DB_INVENTORY_COUNTS = 'cc_mock_db_inventory_counts';
 
 const ROOT_ADMIN_EMAIL = (
   import.meta.env.VITE_ROOT_ADMIN_EMAIL || 'curiosidades2526@gmail.com'
@@ -692,88 +691,6 @@ class GASService {
             break;
           }
 
-          case 'saveInventoryCount': {
-            const incoming = data as InventoryCount;
-            if (!incoming?.codigo_barras || !incoming?.tienda || !incoming?.fecha_corte) {
-              resolve({ ok: false, error: 'Conteo inválido.' });
-              break;
-            }
-
-            const inventoryCounts = this.getMockData<InventoryCount>(MOCK_DB_INVENTORY_COUNTS);
-            const next = inventoryCounts.filter(
-              (item) =>
-                !(
-                  item.codigo_barras === incoming.codigo_barras &&
-                  item.tienda === incoming.tienda &&
-                  item.fecha_corte === incoming.fecha_corte
-                )
-            );
-
-            next.push(incoming);
-            this.saveMockData(MOCK_DB_INVENTORY_COUNTS, next);
-            resolve({ ok: true, data: incoming });
-            break;
-          }
-
-          case 'getInventoryCounts': {
-            const tienda = String(data.tienda || '').trim();
-            const fecha = String(data.fecha_corte || '').trim();
-            const inventoryCounts = this.getMockData<InventoryCount>(MOCK_DB_INVENTORY_COUNTS);
-            const filtered = inventoryCounts.filter(
-              (item) =>
-                (!tienda || item.tienda === tienda) &&
-                (!fecha || item.fecha_corte === fecha)
-            );
-            resolve({ ok: true, data: filtered });
-            break;
-          }
-
-          case 'getInventoryComparisonReport': {
-            const tienda = String(data.tienda || 'ALL').trim();
-            const fecha = String(data.dateTo || data.dateFrom || '').trim();
-            const inventoryCounts = this.getMockData<InventoryCount>(MOCK_DB_INVENTORY_COUNTS);
-            const visibleCostales = costales.filter(
-              (item) =>
-                item.estado !== CostalStatus.ABIERTO &&
-                (tienda === 'ALL' || item.tienda === tienda)
-            );
-
-            const countsByKey = new Map(
-              inventoryCounts
-                .filter(
-                  (item) =>
-                    (!fecha || item.fecha_corte === fecha) &&
-                    (tienda === 'ALL' || item.tienda === tienda)
-                )
-                .map((item) => [`${item.tienda}::${item.codigo_barras}`, item])
-            );
-
-            const merged = visibleCostales
-              .map((costal) => {
-                const found = countsByKey.get(`${costal.tienda}::${costal.codigo_barras}`);
-                return {
-                  id_conteo: found?.id_conteo || `${costal.tienda}-${fecha}-${costal.codigo_barras}`,
-                  codigo_barras: costal.codigo_barras,
-                  categoria: costal.categoria,
-                  tienda: costal.tienda,
-                  fecha_conteo: found?.fecha_conteo || '',
-                  fecha_corte: found?.fecha_corte || fecha,
-                  usuario_conteo: found?.usuario_conteo || '',
-                  stock_piezas: Number(costal.piezas_asignadas || 0),
-                  inventario_fisico: Number(found?.inventario_fisico ?? 0),
-                  diferencia: Number(found ? found.diferencia : (0 - Number(costal.piezas_asignadas || 0))),
-                };
-              });
-
-            const finalData =
-              data.type === 'DIFERENCIAS'
-                ? merged.filter((item) => item.diferencia !== 0 || item.inventario_fisico !== item.stock_piezas)
-                : merged;
-
-            resolve({ ok: true, data: finalData });
-            break;
-          }
-
           default:
             resolve({ ok: true });
         }
@@ -951,27 +868,6 @@ class GASService {
   }) {
     return this.request('getDetailedReport', params);
   }
-
-  async saveInventoryCount(count: InventoryCount) {
-    return this.request('saveInventoryCount', count);
-  }
-
-  async getInventoryCounts(tienda: string, fecha_corte: string) {
-    return this.request('getInventoryCounts', { tienda, fecha_corte });
-  }
-
-  async getInventoryComparisonReport(params: {
-    type: 'INVENTARIO' | 'DIFERENCIAS';
-    dateFrom: string;
-    dateTo: string;
-    tienda: string;
-    usuario: string;
-  }) {
-    return this.request('getInventoryComparisonReport', params);
-  }
 }
 
 export const gasService = new GASService();
-
-
-
