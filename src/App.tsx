@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { User, Role, Costal, Apertura, CostalStatus, OfflineAction, Store, InventoryCount } from './types';
+import { User, Role, Costal, Apertura, CostalStatus, OfflineAction, Store } from './types';
 import { CATEGORIES, PIECES_MAP, INITIAL_STORES } from './constants';
 import { gasService } from './services/gasService';
 import Scanner from './components/Scanner';
@@ -33,7 +33,7 @@ const generateUUID = () => {
 };
 
 const canAccessAdmin = (user: User | null) => user?.rol === Role.ADMIN || user?.rol === Role.ADMIN_2;
-const canAccessReports = (user: User | null) => Boolean(user);
+const canAccessReports = (user: User | null) => user?.rol === Role.ADMIN || user?.rol === Role.ADMIN_2;
 const isRootAdmin = (user: User | null) => (user?.email || '').toLowerCase() === ROOT_ADMIN_EMAIL;
 
 const canManageUser = (currentUser: User | null, target: User) => {
@@ -308,7 +308,7 @@ const AperturaScreen = ({ user, isOnline, showNotify, enqueueAction, loadMetrics
     <div className="space-y-6">
       <div className="bg-white p-8 rounded-[32px] shadow-sm">
         <h2 className="text-xl font-black mb-4 tracking-tighter">Apertura y Conteo</h2>
-        <Scanner onScan={checkCode} placeholder="Escanea código para validar stock..." allowManual={false} />
+        <Scanner onScan={checkCode} placeholder="Escanea código para validar stock..." />
       </div>
 
       {costalInfo && (
@@ -402,7 +402,7 @@ const App: React.FC = () => {
   }, []);
 
   const refreshAdminData = useCallback(async () => {
-    await Promise.all([loadStores(), loadMetrics()]);
+    await Promise.allSettled([loadStores(), loadMetrics()]);
   }, [loadStores, loadMetrics]);
 
   useEffect(() => {
@@ -512,8 +512,24 @@ const App: React.FC = () => {
       });
 
       if (res.ok) {
-        await refreshAdminData();
-        return { ok: true };
+        const createdUser = res?.data?.user as User | undefined;
+        if (createdUser) {
+          setUsers(prev => {
+            const exists = prev.some(u => u.email.toLowerCase() === createdUser.email.toLowerCase());
+            return exists ? prev : [...prev, createdUser];
+          });
+        }
+
+        loadUsers();
+
+        return {
+          ok: true,
+          partial: !!res.partial,
+          tempPassword: res?.data?.tempPassword || '',
+          emailSent: !!res?.data?.emailSent,
+          warning: res?.warning || '',
+          emailError: res?.emailError || '',
+        };
       }
 
       return { ok: false, error: res.error || 'No se pudo registrar.' };
@@ -557,8 +573,16 @@ const App: React.FC = () => {
     try {
       const res: any = await gasService.addStore(newStore);
       if (res.ok) {
-        await refreshAdminData();
+        setStores(prev => {
+          const exists = prev.some(s => s.id_tienda === newStore.id_tienda || s.nombre.toLowerCase() === newStore.nombre.toLowerCase());
+          const next = exists ? prev : [...prev, newStore];
+          localStorage.setItem(STORES_CACHE_KEY, JSON.stringify(next));
+          return next;
+        });
+        loadStores();
+        loadMetrics();
         showNotify('success', 'Tienda creada.');
+        return true;
       } else {
         showNotify('error', res.error || 'Error al crear.');
       }
@@ -567,6 +591,8 @@ const App: React.FC = () => {
     } finally {
       setLoading(false);
     }
+
+    return false;
   };
 
   const handleUpdateStore = async (store: Store) => {
@@ -740,7 +766,7 @@ const App: React.FC = () => {
             loading={loading}
           />
         )}
-        {currentScreen === 'REPORTES' && canAccessReports(user) && <ReportesView user={user} stores={stores} showNotify={showNotify} />}
+        {currentScreen === 'REPORTES' && canAccessReports(user) && <ReportesView />}
       </main>
 
       {user && currentScreen !== 'CHANGE_PASSWORD' && (
@@ -954,7 +980,7 @@ const RecepcionView = ({ user, isOnline, showNotify, enqueueAction, loadMetrics,
       </div>
       <div className="bg-white p-8 rounded-[32px] shadow-sm">
         <h2 className="text-xl font-black mb-4">Scanner Recepción</h2>
-        <Scanner onScan={onScanCode} allowManual={false} />
+        <Scanner onScan={onScanCode} />
       </div>
     </div>
   );
@@ -1051,7 +1077,12 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
     });
 
     if (res.ok) {
-      showNotify('success', 'Usuario creado. Se envió contraseña temporal por correo.');
+      if (res.partial || !res.emailSent) {
+        const tempPasswordText = res.tempPassword ? ` Contraseña temporal: ${res.tempPassword}` : '';
+        showNotify('warning', `${res.warning || 'Usuario creado, pero el correo no se pudo enviar.'}${tempPasswordText}`);
+      } else {
+        showNotify('success', 'Usuario creado. Se envió contraseña temporal por correo.');
+      }
       setNewUserName('');
       setNewUserEmail('');
       setNewUserStore(stores[0]?.id_tienda || '');
@@ -1064,10 +1095,12 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
   };
 
   const handleCreateStoreSubmit = async () => {
-    await onAddStore(newStoreName, newStoreAddr);
-    setNewStoreName('');
-    setNewStoreAddr('');
-    setShowNewStoreModal(false);
+    const ok = await onAddStore(newStoreName, newStoreAddr);
+    if (ok) {
+      setNewStoreName('');
+      setNewStoreAddr('');
+      setShowNewStoreModal(false);
+    }
   };
 
   const handleResetSubmit = async () => {
@@ -1462,295 +1495,52 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
   );
 };
 
-const ReportesView = ({ user, stores, showNotify }: { user: User | null; stores: Store[]; showNotify: (type: 'success' | 'error' | 'warning', msg: string) => void; }) => {
-  const isAdminView = user?.rol === Role.ADMIN || user?.rol === Role.ADMIN_2;
-  const defaultStore = isAdminView ? 'ALL' : (user?.tienda || 'ALL');
+const ReportesView = () => {
   const [dateFrom, setDateFrom] = useState(new Date().toISOString().split('T')[0]);
   const [dateTo, setDateTo] = useState(new Date().toISOString().split('T')[0]);
-  const [reportType, setReportType] = useState('STOCK');
-  const [selectedStore, setSelectedStore] = useState(defaultStore);
-  const [reportData, setReportData] = useState<any>({ detailRows: [], categorySummary: [], storeSummary: [], generalSummary: [] });
-  const [inventoryCode, setInventoryCode] = useState('');
-  const [inventoryCount, setInventoryCountValue] = useState('');
-  const [inventoryItem, setInventoryItem] = useState<Costal | null>(null);
-  const [inventorySaving, setInventorySaving] = useState(false);
+  const [reportType, setReportType] = useState('RECIBIDOS');
+  const [results, setResults] = useState<any[]>([]);
 
-  useEffect(() => {
-    setSelectedStore(defaultStore);
-  }, [defaultStore]);
-
-  const generateReport = useCallback(async () => {
-    const res: any = await gasService.getDetailedReport({
-      type: reportType,
-      dateFrom,
-      dateTo,
-      tienda: selectedStore,
-      usuario: 'ALL',
-    });
-    if (res.ok) {
-      setReportData(res.data || { detailRows: [], categorySummary: [], storeSummary: [], generalSummary: [] });
-    } else {
-      showNotify('error', res.error || 'No se pudo generar el reporte.');
-    }
-  }, [dateFrom, dateTo, reportType, selectedStore, showNotify]);
-
-  useEffect(() => {
-    generateReport();
-  }, [generateReport]);
-
-  const onInventoryScan = async (code: string) => {
-    const clean = code.trim();
-    if (!clean) return;
-    setInventoryCode(clean);
-    const scopeStore = user?.tienda || selectedStore;
-    const res: any = await gasService.getInventory(scopeStore === 'ALL' ? (user?.tienda || '') : scopeStore);
-    const found = res.data?.find((item: Costal) => item.codigo_barras === clean);
-    if (!found) {
-      setInventoryItem(null);
-      showNotify('error', 'El costal no está disponible en stock para inventario.');
-      return;
-    }
-    setInventoryItem(found);
-    setInventoryCountValue(String(found.piezas_asignadas || 0));
-  };
-
-  const saveInventory = async () => {
-    if (!inventoryItem) return showNotify('error', 'Escanea un costal válido.');
-    if (inventoryCount === '') return showNotify('warning', 'Ingresa el conteo físico.');
-    const counted = parseInt(inventoryCount, 10);
-    if (!Number.isFinite(counted)) return showNotify('error', 'Conteo inválido.');
-
-    const payload: InventoryCount = {
-      id_inventario: `${inventoryItem.codigo_barras}-${inventoryItem.tienda}`,
-      codigo_barras: inventoryItem.codigo_barras,
-      categoria: inventoryItem.categoria,
-      tienda: inventoryItem.tienda,
-      usuario_inventario: user?.email || '',
-      fecha_inventario: new Date().toISOString(),
-      piezas_sistema: inventoryItem.piezas_asignadas,
-      piezas_contadas: counted,
-      diferencia: counted - inventoryItem.piezas_asignadas,
-    };
-
-    setInventorySaving(true);
-    try {
-      const res: any = await gasService.saveInventoryCount(payload);
-      if (!res.ok) {
-        showNotify('error', res.error || 'No se pudo guardar la toma.');
-        return;
-      }
-      showNotify('success', `Inventario guardado para ${inventoryItem.codigo_barras}.`);
-      setInventoryCode('');
-      setInventoryCountValue('');
-      setInventoryItem(null);
-      if (reportType === 'INVENTARIO' || reportType === 'DIFERENCIAS') {
-        generateReport();
-      }
-    } finally {
-      setInventorySaving(false);
-    }
-  };
-
-  const exportReport = () => {
-    const wb = XLSX.utils.book_new();
-    const detail = reportData.detailRows || [];
-    const categorySummary = reportData.categorySummary || [];
-    const storeSummary = reportData.storeSummary || [];
-    const generalSummary = reportData.generalSummary || [];
-
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(detail.length ? detail : [{ mensaje: 'Sin datos' }]), 'Detalle');
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(categorySummary.length ? categorySummary : [{ mensaje: 'Sin datos' }]), 'ResumenCategoria');
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(storeSummary.length ? storeSummary : [{ mensaje: 'Sin datos' }]), 'ResumenTienda');
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(generalSummary.length ? generalSummary : [{ mensaje: 'Sin datos' }]), 'ResumenGeneral');
-    XLSX.writeFile(wb, `reporte_${reportType.toLowerCase()}_${selectedStore.toLowerCase()}.xlsx`);
-  };
-
-  const printReport = () => window.print();
-
-  const renderDetailHeaders = () => {
-    if (reportType === 'DIFERENCIAS' || reportType === 'INVENTARIO' || reportType === 'ABIERTOS') {
-      return (
-        <tr className="text-left text-[10px] uppercase text-gray-400">
-          <th className="p-3">Categoría</th>
-          <th className="p-3">Costal</th>
-          <th className="p-3">Sistema</th>
-          <th className="p-3">Conteo</th>
-          <th className="p-3">Dif.</th>
-          <th className="p-3">Tienda</th>
-        </tr>
-      );
-    }
-    return (
-      <tr className="text-left text-[10px] uppercase text-gray-400">
-        <th className="p-3">Categoría</th>
-        <th className="p-3">Costal</th>
-        <th className="p-3">Piezas</th>
-        <th className="p-3">Tienda</th>
-        <th className="p-3">Estado</th>
-      </tr>
-    );
-  };
-
-  const renderDetailRow = (item: any, i: number) => {
-    if (reportType === 'DIFERENCIAS' || reportType === 'INVENTARIO' || reportType === 'ABIERTOS') {
-      return (
-        <tr key={`${item.codigo_barras}-${i}`} className="border-t border-gray-100 text-sm">
-          <td className="p-3 font-bold">{item.categoria}</td>
-          <td className="p-3 font-black">{item.codigo_barras}</td>
-          <td className="p-3">{item.piezas_sistema ?? item.piezas}</td>
-          <td className="p-3">{item.piezas}</td>
-          <td className={`p-3 font-black ${(item.diferencia || 0) === 0 ? 'text-gray-500' : (item.diferencia || 0) > 0 ? 'text-green-600' : 'text-red-600'}`}>{item.diferencia > 0 ? '+' : ''}{item.diferencia || 0}</td>
-          <td className="p-3">{item.tienda_nombre || item.tienda}</td>
-        </tr>
-      );
-    }
-    return (
-      <tr key={`${item.codigo_barras}-${i}`} className="border-t border-gray-100 text-sm">
-        <td className="p-3 font-bold">{item.categoria}</td>
-        <td className="p-3 font-black">{item.codigo_barras}</td>
-        <td className="p-3">{item.piezas}</td>
-        <td className="p-3">{item.tienda_nombre || item.tienda}</td>
-        <td className="p-3">{item.estado}</td>
-      </tr>
-    );
+  const generateReport = async () => {
+    const res: any = await gasService.getDetailedReport({ type: reportType, dateFrom, dateTo, tienda: 'ALL', usuario: 'ALL' });
+    if (res.ok) setResults(res.data);
   };
 
   return (
     <div className="space-y-6 pb-20">
-      <div className="bg-white p-8 rounded-[40px] shadow-sm space-y-6 print:shadow-none">
-        <h2 className="text-2xl font-black text-center">Reportería e Inventario</h2>
+      <div className="bg-white p-8 rounded-[40px] shadow-sm space-y-6">
+        <h2 className="text-2xl font-black text-center">Auditoría General</h2>
         <div className="grid grid-cols-2 gap-4">
           <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="p-3 bg-gray-50 rounded-2xl outline-none text-sm" />
           <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="p-3 bg-gray-50 rounded-2xl outline-none text-sm" />
         </div>
-        {isAdminView ? (
-          <select value={selectedStore} onChange={e => setSelectedStore(e.target.value)} className="w-full p-4 bg-gray-50 rounded-2xl font-bold">
-            <option value="ALL">Todas las tiendas</option>
-            {stores.map((s) => <option key={s.id_tienda} value={s.id_tienda}>{s.nombre}</option>)}
-          </select>
-        ) : (
-          <div className="bg-indigo-50 text-indigo-700 rounded-2xl p-4 text-sm font-black text-center">
-            {stores.find((s) => s.id_tienda === user?.tienda)?.nombre || user?.tienda}
-          </div>
-        )}
-        <div className="grid grid-cols-2 gap-2 p-1 bg-gray-50 rounded-3xl">
-          {['STOCK', 'RECIBIDOS', 'ABIERTOS', 'INVENTARIO', 'DIFERENCIAS', 'RESUMEN_TIENDA', 'RESUMEN_GENERAL'].map(t => (
-            <button key={t} onClick={() => setReportType(t)} className={`py-3 rounded-2xl text-[9px] font-black transition-all ${reportType === t ? 'bg-indigo-600 text-white' : 'text-gray-500'}`}>{t.replace('_', ' ')}</button>
+        <div className="flex gap-2 p-1 bg-gray-50 rounded-3xl">
+          {['STOCK', 'RECIBIDOS', 'ABIERTOS'].map(t => (
+            <button key={t} onClick={() => setReportType(t)} className={`flex-1 py-3 rounded-2xl text-[8px] font-black transition-all ${reportType === t ? 'bg-indigo-600 text-white' : 'text-gray-400'}`}>{t}</button>
           ))}
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <button onClick={generateReport} className="w-full bg-gray-900 text-white font-black py-4 rounded-[28px] text-xs uppercase tracking-widest shadow-xl">Generar</button>
-          <button onClick={printReport} className="w-full bg-indigo-100 text-indigo-700 font-black py-4 rounded-[28px] text-xs uppercase tracking-widest">Imprimir</button>
-          <button onClick={exportReport} className="w-full bg-emerald-100 text-emerald-700 font-black py-4 rounded-[28px] text-xs uppercase tracking-widest">Exportar Excel</button>
-        </div>
+        <button onClick={generateReport} className="w-full bg-gray-900 text-white font-black py-4 rounded-[28px] text-xs uppercase tracking-widest shadow-xl">Generar Consulta</button>
       </div>
-
-      <div className="bg-white p-8 rounded-[40px] shadow-sm space-y-5">
-        <div>
-          <h3 className="text-lg font-black">Toma de Inventario</h3>
-          <p className="text-xs text-gray-400 font-bold">Escanea el costal, confirma el conteo físico y guarda la toma para comparar contra stock.</p>
-        </div>
-        <Scanner onScan={onInventoryScan} placeholder="Escanea costal para inventario..." allowManual={false} />
-        {inventoryItem && (
-          <div className="border border-indigo-100 rounded-3xl p-5 space-y-4">
+      <div className="space-y-3">
+        {results.map((item, i) => (
+          <div key={i} className="bg-white p-5 rounded-[32px] shadow-sm flex justify-between items-center">
             <div>
-              <p className="font-black text-lg">{inventoryItem.codigo_barras}</p>
-              <p className="text-xs font-black text-gray-400 uppercase">{inventoryItem.categoria} • Sistema: {inventoryItem.piezas_asignadas} piezas</p>
+              <p className="font-black text-gray-900 text-sm tracking-tight">{item.codigo_barras || 'ID:' + item.id_apertura?.substring(0, 8)}</p>
+              <p className="text-[9px] font-black text-gray-400 uppercase">{item.categoria}</p>
+              <p className="text-[8px] font-bold text-indigo-400 mt-0.5">{new Date(item.fecha_recepcion || item.fecha_apertura).toLocaleDateString()}</p>
             </div>
-            <input type="number" value={inventoryCount} onChange={(e) => setInventoryCountValue(e.target.value)} className="w-full p-5 bg-orange-50 rounded-3xl outline-none text-center text-4xl font-black text-orange-600" placeholder="Conteo físico" />
-            <button onClick={saveInventory} disabled={inventorySaving} className="w-full bg-indigo-600 text-white font-black py-4 rounded-3xl disabled:opacity-50">{inventorySaving ? 'GUARDANDO...' : 'GUARDAR TOMA'}</button>
-          </div>
-        )}
-      </div>
-
-      <div className="bg-white p-6 rounded-[32px] shadow-sm overflow-x-auto">
-        <h3 className="text-lg font-black mb-3">Detalle por categoría y costal</h3>
-        <table className="w-full min-w-[720px]">
-          <thead>{renderDetailHeaders()}</thead>
-          <tbody>
-            {(reportData.detailRows || []).length ? (reportData.detailRows || []).map(renderDetailRow) : (
-              <tr><td colSpan={6} className="p-6 text-center text-gray-400 font-bold">Sin datos</td></tr>
+            {item.diferencia !== undefined && (
+              <div className={`text-xs font-black p-3 rounded-2xl ${item.diferencia >= 0 ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
+                {item.diferencia > 0 ? '+' : ''}{item.diferencia}
+              </div>
             )}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="bg-white p-6 rounded-[32px] shadow-sm overflow-x-auto">
-        <h3 className="text-lg font-black mb-3">Resumen por categoría</h3>
-        <table className="w-full min-w-[540px]">
-          <thead>
-            <tr className="text-left text-[10px] uppercase text-gray-400">
-              <th className="p-3">Categoría</th>
-              <th className="p-3">Costales</th>
-              <th className="p-3">Piezas</th>
-              <th className="p-3">Diferencia</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(reportData.categorySummary || []).length ? (reportData.categorySummary || []).map((item: any) => (
-              <tr key={item.categoria} className="border-t border-gray-100 text-sm">
-                <td className="p-3 font-black">{item.categoria}</td>
-                <td className="p-3">{item.totalCostales}</td>
-                <td className="p-3">{item.totalPiezas}</td>
-                <td className="p-3 font-black">{item.totalDiferencia > 0 ? '+' : ''}{item.totalDiferencia}</td>
-              </tr>
-            )) : <tr><td colSpan={4} className="p-6 text-center text-gray-400 font-bold">Sin datos</td></tr>}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="bg-white p-6 rounded-[32px] shadow-sm overflow-x-auto">
-        <h3 className="text-lg font-black mb-3">Resumen por tienda</h3>
-        <table className="w-full min-w-[620px]">
-          <thead>
-            <tr className="text-left text-[10px] uppercase text-gray-400">
-              <th className="p-3">Tienda</th>
-              <th className="p-3">Categoría</th>
-              <th className="p-3">Costales</th>
-              <th className="p-3">Piezas</th>
-              <th className="p-3">Diferencia</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(reportData.storeSummary || []).length ? (reportData.storeSummary || []).map((item: any) => (
-              <tr key={`${item.tienda}-${item.categoria}`} className="border-t border-gray-100 text-sm">
-                <td className="p-3 font-black">{item.tienda_nombre || item.tienda}</td>
-                <td className="p-3">{item.categoria}</td>
-                <td className="p-3">{item.totalCostales}</td>
-                <td className="p-3">{item.totalPiezas}</td>
-                <td className="p-3 font-black">{item.totalDiferencia > 0 ? '+' : ''}{item.totalDiferencia}</td>
-              </tr>
-            )) : <tr><td colSpan={5} className="p-6 text-center text-gray-400 font-bold">Sin datos</td></tr>}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="bg-white p-6 rounded-[32px] shadow-sm overflow-x-auto">
-        <h3 className="text-lg font-black mb-3">Resumen general</h3>
-        <table className="w-full min-w-[540px]">
-          <thead>
-            <tr className="text-left text-[10px] uppercase text-gray-400">
-              <th className="p-3">Categoría</th>
-              <th className="p-3">Costales</th>
-              <th className="p-3">Piezas</th>
-              <th className="p-3">Diferencia</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(reportData.generalSummary || []).length ? (reportData.generalSummary || []).map((item: any) => (
-              <tr key={item.categoria} className="border-t border-gray-100 text-sm">
-                <td className="p-3 font-black">{item.categoria}</td>
-                <td className="p-3">{item.totalCostales}</td>
-                <td className="p-3">{item.totalPiezas}</td>
-                <td className="p-3 font-black">{item.totalDiferencia > 0 ? '+' : ''}{item.totalDiferencia}</td>
-              </tr>
-            )) : <tr><td colSpan={4} className="p-6 text-center text-gray-400 font-bold">Sin datos</td></tr>}
-          </tbody>
-        </table>
+          </div>
+        ))}
       </div>
     </div>
   );
 };
 
 export default App;
+
 
