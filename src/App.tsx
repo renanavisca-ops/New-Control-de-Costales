@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { User, Role, Costal, Apertura, CostalStatus, OfflineAction, Store } from './types';
+import { User, Role, Costal, Apertura, CostalStatus, OfflineAction, Store, InventoryCount } from './types';
 import { CATEGORIES, PIECES_MAP, INITIAL_STORES } from './constants';
 import { gasService } from './services/gasService';
 import Scanner from './components/Scanner';
@@ -12,6 +12,7 @@ type Screen =
   | 'RECEPCION'
   | 'EXISTENCIAS'
   | 'APERTURA'
+  | 'INVENTARIO'
   | 'METRICAS'
   | 'REPORTES';
 
@@ -308,7 +309,7 @@ const AperturaScreen = ({ user, isOnline, showNotify, enqueueAction, loadMetrics
     <div className="space-y-6">
       <div className="bg-white p-8 rounded-[32px] shadow-sm">
         <h2 className="text-xl font-black mb-4 tracking-tighter">Apertura y Conteo</h2>
-        <Scanner onScan={checkCode} placeholder="Escanea código para validar stock..." />
+        <Scanner onScan={checkCode} placeholder="Escanea código para validar stock..." allowManualEntry={false} />
       </div>
 
       {costalInfo && (
@@ -647,6 +648,7 @@ const App: React.FC = () => {
     { id: 'RECEPCION', label: 'Recibir', icon: '📥', show: true },
     { id: 'EXISTENCIAS', label: 'Stock', icon: '📦', show: true },
     { id: 'APERTURA', label: 'Abrir', icon: '✂️', show: true },
+    { id: 'INVENTARIO', label: 'Invent.', icon: '🧾', show: true },
     { id: 'METRICAS', label: 'Admin', icon: '⚙️', show: canAccessAdmin(user) },
     { id: 'REPORTES', label: 'Reportes', icon: '📋', show: canAccessReports(user) },
   ];
@@ -710,7 +712,7 @@ const App: React.FC = () => {
             onDataChanged={refreshAdminData}
           />
         )}
-        {currentScreen === 'EXISTENCIAS' && <ExistenciasView user={user} onOpen={(code: string) => { localStorage.setItem('pending_apertura_code', code); setCurrentScreen('APERTURA'); }} />}
+        {currentScreen === 'EXISTENCIAS' && <ExistenciasView user={user} />}
         {currentScreen === 'RECEPCION' && (
           <RecepcionView
             user={user}
@@ -723,6 +725,12 @@ const App: React.FC = () => {
             setSelectedCategory={(cat: string) => { setSelectedCategory(cat); localStorage.setItem('cc_last_category', cat); }}
             sessionScannedCodes={sessionScannedCodes}
             setSessionScannedCodes={setSessionScannedCodes}
+          />
+        )}
+        {currentScreen === 'INVENTARIO' && (
+          <InventoryTakeView
+            user={user}
+            showNotify={showNotify}
           />
         )}
         {currentScreen === 'METRICAS' && canAccessAdmin(user) && (
@@ -757,7 +765,7 @@ const App: React.FC = () => {
   );
 };
 
-const ExistenciasView = ({ user, onOpen }: any) => {
+const ExistenciasView = ({ user }: any) => {
   const [items, setItems] = useState<Costal[]>([]);
   const [isImporting, setIsImporting] = useState(false);
   const [importSummary, setImportSummary] = useState<string>('');
@@ -899,7 +907,7 @@ const ExistenciasView = ({ user, onOpen }: any) => {
                 <p className="font-black text-gray-900">{item.codigo_barras}</p>
                 <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">{item.categoria} • ESP: {item.piezas_asignadas}</p>
               </div>
-              <button onClick={() => onOpen(item.codigo_barras)} className="bg-indigo-600 text-white px-6 py-3 rounded-2xl font-black text-xs">ABRIR</button>
+              <div className="bg-indigo-50 text-indigo-700 px-4 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest">Abrir desde módulo escáner</div>
             </div>
           ))}
         </div>
@@ -908,7 +916,7 @@ const ExistenciasView = ({ user, onOpen }: any) => {
   );
 };
 
-function RecepcionView({ user, isOnline, showNotify, enqueueAction, loadMetrics, onDataChanged, selectedCategory, setSelectedCategory, sessionScannedCodes, setSessionScannedCodes }: any) {
+const RecepcionView = ({ user, isOnline, showNotify, enqueueAction, loadMetrics, onDataChanged, selectedCategory, setSelectedCategory, sessionScannedCodes, setSessionScannedCodes }: any) => {
   const onScanCode = async (code: string) => {
     const codeClean = code.trim();
     if (!codeClean) return;
@@ -954,11 +962,161 @@ function RecepcionView({ user, isOnline, showNotify, enqueueAction, loadMetrics,
       </div>
       <div className="bg-white p-8 rounded-[32px] shadow-sm">
         <h2 className="text-xl font-black mb-4">Scanner Recepción</h2>
-        <Scanner onScan={onScanCode} />
+        <Scanner onScan={onScanCode} allowManualEntry={false} />
       </div>
     </div>
   );
-}
+};
+
+
+const InventoryTakeView = ({ user, showNotify }: any) => {
+  const today = new Date().toISOString().split('T')[0];
+  const storageKey = `cc_inventory_take_${user?.tienda || 'NO_STORE'}_${today}`;
+  const [stockItems, setStockItems] = useState<Costal[]>([]);
+  const [rows, setRows] = useState<InventoryCount[]>(() => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const loadStock = useCallback(async () => {
+    const res: any = await gasService.getInventory(user?.tienda || '');
+    if (res.ok) setStockItems(res.data || []);
+  }, [user?.tienda]);
+
+  useEffect(() => {
+    loadStock();
+  }, [loadStock]);
+
+  useEffect(() => {
+    localStorage.setItem(storageKey, JSON.stringify(rows));
+  }, [rows, storageKey]);
+
+  const stockMap = useMemo(() => {
+    const map = new Map<string, Costal>();
+    stockItems.forEach((item) => map.set(item.codigo_barras, item));
+    return map;
+  }, [stockItems]);
+
+  const grouped = useMemo(() => {
+    const groups = new Map<string, { categoria: string; costales: number; piezas: number }>();
+    rows.forEach((row) => {
+      const current = groups.get(row.categoria) || { categoria: row.categoria, costales: 0, piezas: 0 };
+      current.costales += 1;
+      current.piezas += row.inventario_fisico;
+      groups.set(row.categoria, current);
+    });
+    return Array.from(groups.values()).sort((a, b) => {
+      const ai = CATEGORIES.indexOf(a.categoria);
+      const bi = CATEGORIES.indexOf(b.categoria);
+      const aRank = ai === -1 ? 999 : ai;
+      const bRank = bi === -1 ? 999 : bi;
+      return aRank - bRank || a.categoria.localeCompare(b.categoria);
+    });
+  }, [rows]);
+
+  const totals = useMemo(() => ({
+    totalCostales: rows.length,
+    totalPiezas: rows.reduce((acc, row) => acc + row.inventario_fisico, 0),
+  }), [rows]);
+
+  const onScanInventory = (code: string) => {
+    const codeClean = code.trim();
+    if (!codeClean) return;
+    if (rows.some((row) => row.codigo_barras === codeClean)) {
+      showNotify('error', `Ya contado: ${codeClean}`);
+      return;
+    }
+
+    const costal = stockMap.get(codeClean);
+    if (!costal) {
+      showNotify('error', 'El costal no está en existencias para esta tienda.');
+      return;
+    }
+
+    const row: InventoryCount = {
+      id_conteo: generateUUID(),
+      codigo_barras: costal.codigo_barras,
+      categoria: costal.categoria,
+      tienda: costal.tienda,
+      fecha_conteo: new Date().toISOString(),
+      fecha_corte: today,
+      usuario_conteo: user?.email || '',
+      stock_piezas: costal.piezas_asignadas,
+      inventario_fisico: costal.piezas_asignadas,
+      diferencia: 0,
+    };
+
+    setRows((prev) => [row, ...prev]);
+    showNotify('success', `Inventariado: ${codeClean}`);
+  };
+
+  const clearSession = () => {
+    setRows([]);
+    localStorage.removeItem(storageKey);
+    showNotify('success', 'Toma de inventario reiniciada.');
+  };
+
+  return (
+    <div className="space-y-6 pb-20">
+      <div className="bg-white p-8 rounded-[32px] shadow-sm space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-2xl font-black tracking-tighter">Toma de Inventario</h2>
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mt-1">Solo por escáner de costales</p>
+          </div>
+          <button onClick={clearSession} className="bg-red-50 text-red-600 px-4 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest">Limpiar</button>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="bg-indigo-50 rounded-3xl p-4">
+            <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Total Costales</p>
+            <p className="text-3xl font-black text-indigo-700 mt-1">{totals.totalCostales}</p>
+          </div>
+          <div className="bg-emerald-50 rounded-3xl p-4">
+            <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Total Piezas</p>
+            <p className="text-3xl font-black text-emerald-700 mt-1">{totals.totalPiezas}</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white p-8 rounded-[32px] shadow-sm">
+        <button type="button" className="w-full bg-gray-900 text-white font-black py-4 rounded-[28px] text-xs uppercase tracking-widest shadow-xl mb-4">Toma de Inventario</button>
+        <Scanner onScan={onScanInventory} placeholder="Escanea costal para inventario..." allowManualEntry={false} />
+      </div>
+
+      <div className="space-y-3">
+        {grouped.map((group) => (
+          <div key={group.categoria} className="bg-white p-5 rounded-[28px] shadow-sm border border-gray-100">
+            <div className="flex items-center justify-between gap-3 mb-2">
+              <p className="font-black text-sm text-gray-900 uppercase tracking-tight">{group.categoria}</p>
+              <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">{group.costales} costales • {group.piezas} piezas</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="space-y-3">
+        {rows.length === 0 ? (
+          <div className="text-center p-10 text-gray-300 font-black border border-dashed rounded-[32px]">Sin costales inventariados</div>
+        ) : rows.map((row) => (
+          <div key={row.id_conteo} className="bg-white p-5 rounded-[28px] shadow-sm flex justify-between items-center gap-4">
+            <div>
+              <p className="font-black text-gray-900 text-sm tracking-tight">{row.codigo_barras}</p>
+              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">{row.categoria}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">Piezas</p>
+              <p className="text-2xl font-black text-emerald-700">{row.inventario_fisico}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
 
 const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateStore, onDeleteStore, onCreateManagedUser, onDeleteUser, onResetStoreData, loading }: any) => {
   const [users, setUsers] = useState<User[]>([]);
@@ -1462,6 +1620,7 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
   );
 };
 
+
 const ReportesView = () => {
   const [dateFrom, setDateFrom] = useState(new Date().toISOString().split('T')[0]);
   const [dateTo, setDateTo] = useState(new Date().toISOString().split('T')[0]);
@@ -1470,13 +1629,44 @@ const ReportesView = () => {
 
   const generateReport = async () => {
     const res: any = await gasService.getDetailedReport({ type: reportType, dateFrom, dateTo, tienda: 'ALL', usuario: 'ALL' });
-    if (res.ok) setResults(res.data);
+    if (res.ok) setResults(res.data || []);
   };
+
+  const normalizedRows = useMemo(() => {
+    return (results || []).map((item: any) => ({
+      codigo_barras: item.codigo_barras || '',
+      categoria: item.categoria || 'SIN CATEGORÍA',
+      piezas: Number(item.piezas_contadas ?? item.piezas_asignadas ?? item.stock_piezas ?? 0),
+    }));
+  }, [results]);
+
+  const groupedRows = useMemo(() => {
+    const groups = new Map<string, { categoria: string; rows: { codigo_barras: string; categoria: string; piezas: number }[]; totalCostales: number; totalPiezas: number }>();
+    normalizedRows.forEach((row) => {
+      const current = groups.get(row.categoria) || { categoria: row.categoria, rows: [], totalCostales: 0, totalPiezas: 0 };
+      current.rows.push(row);
+      current.totalCostales += 1;
+      current.totalPiezas += row.piezas;
+      groups.set(row.categoria, current);
+    });
+    return Array.from(groups.values()).sort((a, b) => {
+      const ai = CATEGORIES.indexOf(a.categoria);
+      const bi = CATEGORIES.indexOf(b.categoria);
+      const aRank = ai === -1 ? 999 : ai;
+      const bRank = bi === -1 ? 999 : bi;
+      return aRank - bRank || a.categoria.localeCompare(b.categoria);
+    });
+  }, [normalizedRows]);
+
+  const generalTotals = useMemo(() => ({
+    totalCostales: normalizedRows.length,
+    totalPiezas: normalizedRows.reduce((acc, row) => acc + row.piezas, 0),
+  }), [normalizedRows]);
 
   return (
     <div className="space-y-6 pb-20">
       <div className="bg-white p-8 rounded-[40px] shadow-sm space-y-6">
-        <h2 className="text-2xl font-black text-center">Auditoría General</h2>
+        <h2 className="text-2xl font-black text-center">Reportes</h2>
         <div className="grid grid-cols-2 gap-4">
           <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="p-3 bg-gray-50 rounded-2xl outline-none text-sm" />
           <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="p-3 bg-gray-50 rounded-2xl outline-none text-sm" />
@@ -1488,19 +1678,45 @@ const ReportesView = () => {
         </div>
         <button onClick={generateReport} className="w-full bg-gray-900 text-white font-black py-4 rounded-[28px] text-xs uppercase tracking-widest shadow-xl">Generar Consulta</button>
       </div>
-      <div className="space-y-3">
-        {results.map((item, i) => (
-          <div key={i} className="bg-white p-5 rounded-[32px] shadow-sm flex justify-between items-center">
-            <div>
-              <p className="font-black text-gray-900 text-sm tracking-tight">{item.codigo_barras || 'ID:' + item.id_apertura?.substring(0, 8)}</p>
-              <p className="text-[9px] font-black text-gray-400 uppercase">{item.categoria}</p>
-              <p className="text-[8px] font-bold text-indigo-400 mt-0.5">{new Date(item.fecha_recepcion || item.fecha_apertura).toLocaleDateString()}</p>
-            </div>
-            {item.diferencia !== undefined && (
-              <div className={`text-xs font-black p-3 rounded-2xl ${item.diferencia >= 0 ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
-                {item.diferencia > 0 ? '+' : ''}{item.diferencia}
+
+      <div className="grid grid-cols-2 gap-3">
+        <div className="bg-indigo-50 rounded-[28px] p-5">
+          <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Totales Generales</p>
+          <p className="text-3xl font-black text-indigo-700 mt-1">{generalTotals.totalCostales}</p>
+          <p className="text-[10px] font-black text-indigo-500 uppercase tracking-widest mt-1">Costales</p>
+        </div>
+        <div className="bg-emerald-50 rounded-[28px] p-5">
+          <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Piezas Generales</p>
+          <p className="text-3xl font-black text-emerald-700 mt-1">{generalTotals.totalPiezas}</p>
+          <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest mt-1">Piezas</p>
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        {groupedRows.length === 0 ? (
+          <div className="text-center p-12 text-gray-300 font-black border border-dashed rounded-[32px]">Sin resultados</div>
+        ) : groupedRows.map((group) => (
+          <div key={group.categoria} className="bg-white p-6 rounded-[32px] shadow-sm space-y-4">
+            <div className="flex items-center justify-between gap-3 border-b border-gray-100 pb-3">
+              <div>
+                <p className="font-black text-gray-900 uppercase tracking-tight">{group.categoria}</p>
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">Código de costal · Categoría · Piezas</p>
               </div>
-            )}
+              <div className="text-right">
+                <p className="text-[10px] font-black text-indigo-500 uppercase tracking-widest">Total categoría</p>
+                <p className="font-black text-sm text-indigo-700">{group.totalCostales} costales</p>
+                <p className="font-black text-sm text-emerald-700">{group.totalPiezas} piezas</p>
+              </div>
+            </div>
+            <div className="space-y-3">
+              {group.rows.map((row, idx) => (
+                <div key={`${row.codigo_barras}-${idx}`} className="grid grid-cols-[1.5fr_1fr_auto] gap-3 items-center bg-gray-50 rounded-2xl px-4 py-3">
+                  <p className="font-black text-gray-900 text-xs break-all">{row.codigo_barras}</p>
+                  <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest">{row.categoria}</p>
+                  <p className="text-sm font-black text-emerald-700">{row.piezas}</p>
+                </div>
+              ))}
+            </div>
           </div>
         ))}
       </div>
