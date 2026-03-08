@@ -1013,42 +1013,7 @@ const MetricasView = ({ metrics, user, stores, showNotify, onAddStore, onUpdateS
     if (!roles.includes(newUserRole)) setNewUserRole(roles[0] as Role);
   }, [user, newUserRole]);
 
-  
   useEffect(() => {
-    const syncOfflineQueue = async () => {
-      if (!isOnline || offlineQueue.length === 0) return;
-
-      const remaining: OfflineAction[] = [];
-
-      for (const action of offlineQueue) {
-        try {
-          if (action.type === 'ADD_COSTAL') {
-            const res = await gasService.addCostal(action.payload);
-            if (!res.ok) remaining.push(action);
-          } else if (action.type === 'OPEN_COSTAL') {
-            const res = await gasService.openCostal(action.payload);
-            if (!res.ok) remaining.push(action);
-          } else if (action.type === 'TRANSFER_COSTAL') {
-            const res = await gasService.transferCostal(action.payload);
-            if (!res.ok) remaining.push(action);
-          }
-        } catch {
-          remaining.push(action);
-        }
-      }
-
-      setOfflineQueue(remaining);
-      localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(remaining));
-
-      if (remaining.length === 0) {
-        showNotify('success', 'Acciones offline sincronizadas.');
-      }
-    };
-
-    syncOfflineQueue();
-  }, [isOnline]);
-
-useEffect(() => {
     if (selectedShopId !== 'ALL' && !shopStats.some((s) => s.id === selectedShopId)) {
       setSelectedShopId('ALL');
     }
