@@ -4,13 +4,13 @@ import { Html5Qrcode } from "html5-qrcode";
 interface ScannerProps {
   onScan: (code: string) => void;
   placeholder?: string;
-  allowManualEntry?: boolean;
+  allowManual?: boolean;
 }
 
 const Scanner: React.FC<ScannerProps> = ({
   onScan,
   placeholder = "Escanea código...",
-  allowManualEntry = true
+  allowManual = true
 }) => {
   const [manualCode, setManualCode] = useState("");
   const [isCameraActive, setIsCameraActive] = useState(false);
@@ -104,28 +104,24 @@ const Scanner: React.FC<ScannerProps> = ({
       </div>
 
       <div className="flex flex-col gap-2">
-        {allowManualEntry ? (
-          <form onSubmit={handleManualSubmit} className="relative flex gap-2">
-            <input
-              ref={inputRef}
-              type="text"
-              value={manualCode}
-              onChange={(e) => setManualCode(e.target.value)}
-              placeholder={placeholder}
-              className="flex-1 p-3 border-2 border-indigo-500 rounded-lg text-lg focus:outline-none focus:ring-2 focus:ring-indigo-300"
-              autoFocus
-            />
-            <button
-              type="submit"
-              className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-indigo-700 active:scale-95 transition-all"
-            >
-              OK
-            </button>
-          </form>
-        ) : (
-          <div className="rounded-2xl border border-dashed border-indigo-200 bg-indigo-50 px-4 py-3 text-sm font-bold text-indigo-700">
-            Recepción y apertura únicamente por lectura de código de barras.
-          </div>
+        {allowManual && (
+        <form onSubmit={handleManualSubmit} className="relative flex gap-2">
+          <input
+            ref={inputRef}
+            type="text"
+            value={manualCode}
+            onChange={(e) => setManualCode(e.target.value)}
+            placeholder={placeholder}
+            className="flex-1 p-3 border-2 border-indigo-500 rounded-lg text-lg focus:outline-none focus:ring-2 focus:ring-indigo-300"
+            autoFocus
+          />
+          <button
+            type="submit"
+            className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-indigo-700 active:scale-95 transition-all"
+          >
+            OK
+          </button>
+        </form>
         )}
 
         <button
@@ -142,5 +138,8 @@ const Scanner: React.FC<ScannerProps> = ({
     </div>
   );
 };
+
+export default Scanner;
+
 
 export default Scanner;
