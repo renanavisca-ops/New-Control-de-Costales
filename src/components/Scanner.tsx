@@ -170,4 +170,3 @@ const Scanner: React.FC<ScannerProps> = ({
 
 export default Scanner;
 
-export default Scanner;
