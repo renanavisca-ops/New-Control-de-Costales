@@ -1,22 +1,25 @@
 'use client';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { supabaseNavegador } from '@/lib/supabase/client';
 import Escaner from '@/components/escaner';
 import { Aviso, Boton, Campo, Entrada, Modal, Selector } from '@/components/ui';
+import { nuevoId, type Categoria, type EnProceso, type Operacion, type TipoOp } from '@/lib/offline/almacen';
+import { verificadorPin } from '@/lib/offline/pin';
+import { useSincronizacion } from '@/lib/offline/sincronizacion';
 
 type Empleado = { id: string; codigo: string; nombre: string };
 type Sesion = { token: string; empleado: Empleado };
 type Vista = 'INICIO' | 'PRODUCCION' | 'RECIBIR' | 'INICIAL' | 'STOCK';
-type EnProceso = { id: string; codigo: string; producto: string | null; empleado_id: string; empleado: string; iniciado_at: string };
-type Categoria = { id: string; nombre: string };
-type Registro = { codigo: string; texto: string; ok: boolean };
+type Sinc = ReturnType<typeof useSincronizacion>;
 
 const INACTIVIDAD_MS = 3 * 60 * 1000;
 
 const minutosDesde = (iso: string) => {
-  const m = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  const m = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000));
   return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
 };
+
+const TEXTO_OP: Record<TipoOp, string> = { RECIBIR: 'Recibido', INICIAR: 'Iniciado', FINALIZAR: 'Finalizado' };
 
 export default function TiendaCliente({
   tienda,
@@ -25,35 +28,20 @@ export default function TiendaCliente({
 }: {
   tienda: { codigo: string; nombre: string; es_central: boolean };
   organizacion: { nombre: string };
-  dispositivo: { nombre: string };
+  dispositivo: { id: string; nombre: string };
 }) {
-  const sb = supabaseNavegador();
+  const sinc = useSincronizacion(dispositivo.id);
   const [vista, setVista] = useState<Vista>('INICIO');
   const [sesion, setSesion] = useState<Sesion | null>(null);
   const [pendiente, setPendiente] = useState<Vista | null>(null);
-  const [enProceso, setEnProceso] = useState<EnProceso[]>([]);
-  const [stock, setStock] = useState<{ producto: string; costales: number }[]>([]);
-  const [categorias, setCategorias] = useState<Categoria[]>([]);
   const ultimaActividad = useRef(Date.now());
 
-  const cargarEnProceso = useCallback(async () => {
-    const { data } = await sb.rpc('producciones_en_proceso');
-    setEnProceso((data as EnProceso[]) || []);
-  }, [sb]);
-
-  const cargarStock = useCallback(async () => {
-    const { data } = await sb.rpc('stock_tienda');
-    setStock((data as { producto: string; costales: number }[]) || []);
-  }, [sb]);
-
+  // App instalable y disponible sin internet
   useEffect(() => {
-    cargarEnProceso();
-    sb.from('categorias').select('id, nombre').eq('activa', true).order('nombre').then(({ data }: { data: unknown }) => setCategorias((data as Categoria[]) || []));
-    const t = setInterval(cargarEnProceso, 20000);
-    return () => clearInterval(t);
-  }, [cargarEnProceso, sb]);
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => undefined);
+    void import('html5-qrcode').catch(() => undefined); // deja la cámara lista en caché
+  }, []);
 
-  // Cierra la sesión del empleado tras unos minutos sin actividad (celular compartido)
   useEffect(() => {
     const marcar = () => (ultimaActividad.current = Date.now());
     window.addEventListener('pointerdown', marcar);
@@ -66,26 +54,23 @@ export default function TiendaCliente({
       window.removeEventListener('keydown', marcar);
       clearInterval(t);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sesion]);
+  }, [sesion]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const abrir = (v: Vista) => {
-    if (v === 'STOCK') {
-      cargarStock();
-      return setVista('STOCK');
-    }
-    setPendiente(v);
-  };
-
+  const abrir = (v: Vista) => (v === 'STOCK' ? setVista('STOCK') : setPendiente(v));
   const terminar = () => {
     setSesion(null);
     setVista('INICIO');
-    cargarEnProceso();
   };
+
+  const stock = useMemo(() => {
+    const m = new Map<string, number>();
+    sinc.datos.costales.filter((c) => c.estado === 'EN_TIENDA').forEach((c) => m.set(c.producto ?? 'SIN PRODUCTO', (m.get(c.producto ?? 'SIN PRODUCTO') ?? 0) + 1));
+    return Array.from(m.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [sinc.datos]);
 
   return (
     <div className="mx-auto min-h-screen max-w-lg p-5">
-      <header className="mb-5 flex items-center justify-between">
+      <header className="mb-4 flex items-start justify-between gap-3">
         <div>
           <p className="text-lg font-black">
             {tienda.codigo} · <span className="text-indigo-600">{tienda.nombre}</span>
@@ -100,6 +85,8 @@ export default function TiendaCliente({
           </button>
         )}
       </header>
+
+      <IndicadorSync sinc={sinc} />
 
       {sesion && vista !== 'INICIO' && (
         <div className="mb-4 rounded-2xl bg-indigo-50 px-4 py-2 text-sm font-bold text-indigo-800">
@@ -116,11 +103,11 @@ export default function TiendaCliente({
             <Mosaico icono="📦" titulo="Stock" detalle="Costales sin abrir" onClick={() => abrir('STOCK')} />
           </div>
           <section className="rounded-3xl bg-white p-5 shadow-sm">
-            <p className="mb-3 text-xs font-black uppercase tracking-wide text-gray-400">En producción ahora ({enProceso.length})</p>
-            {enProceso.length === 0 && <p className="text-sm text-gray-400">Nadie está produciendo en este momento.</p>}
+            <p className="mb-3 text-xs font-black uppercase tracking-wide text-gray-400">En producción ahora ({sinc.datos.en_proceso.length})</p>
+            {sinc.datos.en_proceso.length === 0 && <p className="text-sm text-gray-400">Nadie está produciendo en este momento.</p>}
             <div className="space-y-2">
-              {enProceso.map((p) => (
-                <div key={p.id} className="flex items-center justify-between rounded-2xl bg-gray-50 px-3 py-2 text-sm">
+              {sinc.datos.en_proceso.map((p) => (
+                <div key={p.codigo} className="flex items-center justify-between rounded-2xl bg-gray-50 px-3 py-2 text-sm">
                   <div>
                     <p className="font-mono font-black">{p.codigo}</p>
                     <p className="text-xs text-gray-500">{p.producto ?? '—'} · {p.empleado}</p>
@@ -133,28 +120,29 @@ export default function TiendaCliente({
         </div>
       )}
 
-      {vista === 'PRODUCCION' && sesion && (
-        <Produccion sesion={sesion} enProceso={enProceso} recargar={cargarEnProceso} />
-      )}
-      {(vista === 'RECIBIR' || vista === 'INICIAL') && sesion && (
-        <Recepcion sesion={sesion} inicial={vista === 'INICIAL'} categorias={categorias} />
-      )}
+      {vista === 'PRODUCCION' && sesion && <Produccion sesion={sesion} sinc={sinc} />}
+      {(vista === 'RECIBIR' || vista === 'INICIAL') && sesion && <Recepcion sesion={sesion} inicial={vista === 'INICIAL'} sinc={sinc} />}
       {vista === 'STOCK' && (
         <section className="rounded-3xl bg-white p-5 shadow-sm">
           <p className="mb-3 text-lg font-black">Stock en tienda</p>
           {stock.length === 0 && <p className="text-sm text-gray-400">Sin costales en stock.</p>}
-          {stock.map((s) => (
-            <div key={s.producto} className="flex justify-between border-b border-gray-100 py-2 text-sm">
-              <span className="font-bold">{s.producto}</span>
-              <span className="font-black text-indigo-600">{s.costales}</span>
+          {stock.map(([producto, n]) => (
+            <div key={producto} className="flex justify-between border-b border-gray-100 py-2 text-sm">
+              <span className="font-bold">{producto}</span>
+              <span className="font-black text-indigo-600">{n}</span>
             </div>
           ))}
-          <p className="mt-3 text-right text-sm font-black">Total: {stock.reduce((a, s) => a + Number(s.costales), 0)}</p>
+          <p className="mt-3 text-right text-sm font-black">Total: {stock.reduce((a, [, n]) => a + n, 0)}</p>
+          {sinc.datos.generado_at && (
+            <p className="mt-2 text-right text-[11px] text-gray-400">Datos del servidor: {new Date(sinc.datos.generado_at).toLocaleString()}</p>
+          )}
         </section>
       )}
 
       {pendiente && (
         <Ingreso
+          dispositivoId={dispositivo.id}
+          sinc={sinc}
           onCerrar={() => setPendiente(null)}
           onOk={(s) => {
             setSesion(s);
@@ -163,6 +151,39 @@ export default function TiendaCliente({
             ultimaActividad.current = Date.now();
           }}
         />
+      )}
+    </div>
+  );
+}
+
+function IndicadorSync({ sinc }: { sinc: Sinc }) {
+  const [verErrores, setVerErrores] = useState(false);
+  const color = !sinc.enLinea ? 'bg-red-50 text-red-700' : sinc.pendientes ? 'bg-orange-50 text-orange-700' : 'bg-green-50 text-green-700';
+  const texto = !sinc.enLinea
+    ? `Sin conexión${sinc.pendientes ? ` · ${sinc.pendientes} pendientes por enviar` : ' · trabajando con datos guardados'}`
+    : sinc.pendientes
+      ? `${sinc.sincronizando ? 'Enviando' : 'Pendientes'}: ${sinc.pendientes}`
+      : 'Todo sincronizado';
+  return (
+    <div className="mb-4 space-y-2">
+      <div className={`flex items-center justify-between rounded-2xl px-4 py-2 text-xs font-bold ${color}`}>
+        <span>{!sinc.enLinea ? '🔴' : sinc.pendientes ? '🟠' : '🟢'} {texto}</span>
+        {sinc.errores.length > 0 && (
+          <button onClick={() => setVerErrores(!verErrores)} className="rounded-full bg-red-600 px-2 py-0.5 text-[10px] text-white">
+            {sinc.errores.length} rechazados
+          </button>
+        )}
+      </div>
+      {verErrores && (
+        <div className="space-y-1 rounded-2xl bg-white p-3 shadow-sm">
+          <p className="text-xs font-black uppercase text-gray-400">Rechazados al sincronizar</p>
+          {sinc.errores.slice(-15).reverse().map((o) => (
+            <div key={o.id} className="rounded-xl bg-red-50 px-3 py-2 text-xs text-red-800">
+              <span className="font-mono font-bold">{String(o.datos.codigo)}</span> · {TEXTO_OP[o.tipo]} por {o.empleado.nombre} · {o.error}
+            </div>
+          ))}
+          <p className="text-[11px] text-gray-400">Avisa a tu supervisor para revisar estos costales.</p>
+        </div>
       )}
     </div>
   );
@@ -181,21 +202,41 @@ function Mosaico({ icono, titulo, detalle, onClick, principal }: { icono: string
   );
 }
 
-function Ingreso({ onCerrar, onOk }: { onCerrar: () => void; onOk: (s: Sesion) => void }) {
+function Ingreso({ dispositivoId, sinc, onCerrar, onOk }: { dispositivoId: string; sinc: Sinc; onCerrar: () => void; onOk: (s: Sesion) => void }) {
   const [codigo, setCodigo] = useState('');
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
   const [cargando, setCargando] = useState(false);
 
+  const ingresoLocal = async () => {
+    const cred = sinc.tienda.credenciales()[codigo.trim().toUpperCase()];
+    if (!cred || new Date(cred.expira) <= new Date()) {
+      return setError('Sin internet: este empleado debe ingresar una vez con internet en este celular (vale por 7 días).');
+    }
+    if ((await verificadorPin(pin, cred.empleado.id, dispositivoId)) !== cred.verificador) return setError('PIN incorrecto.');
+    onOk({ token: cred.token, empleado: cred.empleado });
+  };
+
   const entrar = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setCargando(true);
-    const { data, error } = await supabaseNavegador().rpc('verificar_empleado', { p_codigo: codigo, p_pin: pin });
-    setCargando(false);
-    const r = data as { ok: boolean; error?: string; token?: string; empleado?: Empleado } | null;
-    if (error || !r?.ok || !r.token || !r.empleado) return setError(r?.error || error?.message || 'No se pudo verificar.');
-    onOk({ token: r.token, empleado: r.empleado });
+    try {
+      if (!navigator.onLine) return await ingresoLocal();
+      const { data, error } = await supabaseNavegador().rpc('verificar_empleado', { p_codigo: codigo, p_pin: pin });
+      if (error) return await ingresoLocal(); // sin conexión real: se intenta con los datos guardados
+      const r = data as { ok: boolean; error?: string; token?: string; expira?: string; empleado?: Empleado } | null;
+      if (!r?.ok || !r.token || !r.empleado || !r.expira) return setError(r?.error || 'No se pudo verificar.');
+      sinc.tienda.guardarCredencial({
+        empleado: r.empleado,
+        token: r.token,
+        expira: r.expira,
+        verificador: await verificadorPin(pin, r.empleado.id, dispositivoId),
+      });
+      onOk({ token: r.token, empleado: r.empleado });
+    } finally {
+      setCargando(false);
+    }
   };
 
   return (
@@ -212,81 +253,110 @@ function Ingreso({ onCerrar, onOk }: { onCerrar: () => void; onOk: (s: Sesion) =
   );
 }
 
-function Produccion({ sesion, enProceso, recargar }: { sesion: Sesion; enProceso: EnProceso[]; recargar: () => Promise<void> }) {
-  const sb = supabaseNavegador();
-  const [mensaje, setMensaje] = useState<{ ok: boolean; texto: string } | null>(null);
-  const [ocupado, setOcupado] = useState(false);
+function crearOp(sesion: Sesion, tipo: TipoOp, datos: Record<string, unknown>): Operacion {
+  return {
+    id: nuevoId(),
+    tipo,
+    token: sesion.token,
+    empleado: { id: sesion.empleado.id, nombre: sesion.empleado.nombre },
+    datos,
+    ocurrido_at: new Date().toISOString(),
+    estado: 'PENDIENTE',
+  };
+}
+
+function Actividad({ sesion, sinc, desde }: { sesion: Sesion; sinc: Sinc; desde: string }) {
+  const mias = sinc.ops.filter((o) => o.empleado.id === sesion.empleado.id && o.ocurrido_at >= desde).slice(-30).reverse();
+  if (!mias.length) return null;
+  return (
+    <section className="rounded-3xl bg-white p-5 shadow-sm">
+      <p className="mb-2 text-sm font-black">Tu actividad</p>
+      <div className="space-y-1">
+        {mias.map((o) => (
+          <div
+            key={o.id}
+            className={`flex justify-between rounded-xl px-3 py-2 text-sm ${o.estado === 'OK' ? 'bg-green-50 text-green-800' : o.estado === 'ERROR' ? 'bg-red-50 text-red-700' : 'bg-orange-50 text-orange-800'}`}
+          >
+            <span className="font-mono font-bold">{String(o.datos.codigo)}</span>
+            <span className="text-xs font-semibold">
+              {o.estado === 'PENDIENTE' ? '⏳ ' : o.estado === 'OK' ? '✓ ' : '✗ '}
+              {o.estado === 'ERROR' ? o.error : o.resultado === 'YA_RECIBIDO' ? 'Ya estaba recibido' : TEXTO_OP[o.tipo]}
+              {o.tipo === 'FINALIZAR' && o.estado !== 'ERROR' ? ` · ${o.datos.piezas} pzs` : ''}
+            </span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function Produccion({ sesion, sinc }: { sesion: Sesion; sinc: Sinc }) {
+  const [desde] = useState(() => new Date().toISOString());
+  const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
   const [finalizando, setFinalizando] = useState<EnProceso | null>(null);
   const [piezas, setPiezas] = useState('');
-  const mios = enProceso.filter((p) => p.empleado_id === sesion.empleado.id);
-  const otros = enProceso.filter((p) => p.empleado_id !== sesion.empleado.id);
+  const mios = sinc.datos.en_proceso.filter((p) => p.empleado_id === sesion.empleado.id);
+  const otros = sinc.datos.en_proceso.filter((p) => p.empleado_id !== sesion.empleado.id);
 
-  const iniciar = async (codigo: string) => {
-    setOcupado(true);
-    const { data, error } = await sb.rpc('iniciar_produccion', { p_token: sesion.token, p_codigo: codigo });
-    setOcupado(false);
-    const r = data as { ok: boolean; error?: string } | null;
-    if (error || !r?.ok) return setMensaje({ ok: false, texto: r?.error || error?.message || 'Error' });
-    setMensaje({ ok: true, texto: `Costal ${codigo} iniciado.` });
-    recargar();
+  const iniciar = (codigo: string) => {
+    const local = sinc.datos.costales.find((c) => c.codigo === codigo);
+    if (local?.estado === 'EN_PRODUCCION') return setAviso({ ok: false, texto: `El costal ${codigo} ya está en producción.` });
+    if (local?.estado === 'EN_TRANSITO') return setAviso({ ok: false, texto: `El costal ${codigo} aún no ha sido recibido.` });
+    if (!local && sinc.datos.generado_at && sinc.enLinea) {
+      return setAviso({ ok: false, texto: `El costal ${codigo} no está en el stock de esta tienda. Recíbelo primero.` });
+    }
+    sinc.agregar(crearOp(sesion, 'INICIAR', { codigo }), local?.producto ?? null);
+    setAviso({
+      ok: true,
+      texto: local ? `Costal ${codigo} iniciado.` : `Costal ${codigo} iniciado sin conexión; se validará al sincronizar.`,
+    });
   };
 
-  const finalizar = async () => {
+  const finalizar = () => {
     if (!finalizando) return;
     const n = Number(piezas);
-    if (!Number.isInteger(n) || n < 0) return setMensaje({ ok: false, texto: 'Ingresa un número de piezas válido.' });
-    setOcupado(true);
-    const { data, error } = await sb.rpc('finalizar_produccion', { p_token: sesion.token, p_produccion: finalizando.id, p_piezas: n });
-    setOcupado(false);
-    const r = data as { ok: boolean; error?: string } | null;
-    if (error || !r?.ok) return setMensaje({ ok: false, texto: r?.error || error?.message || 'Error' });
-    setMensaje({ ok: true, texto: `Costal ${finalizando.codigo} finalizado con ${n} piezas.` });
+    if (!Number.isInteger(n) || n < 0) return;
+    sinc.agregar(crearOp(sesion, 'FINALIZAR', { codigo: finalizando.codigo, piezas: n }), finalizando.producto);
+    setAviso({ ok: true, texto: `Costal ${finalizando.codigo} finalizado con ${n} piezas.` });
     setFinalizando(null);
     setPiezas('');
-    recargar();
   };
+
+  const Fila = ({ p, propio }: { p: EnProceso; propio: boolean }) => (
+    <div className={`flex items-center justify-between rounded-2xl px-3 py-3 ${propio ? 'bg-orange-50' : 'bg-gray-50'}`}>
+      <div>
+        <p className="font-mono font-black">{p.codigo}</p>
+        <p className="text-xs text-gray-500">
+          {p.producto ?? '—'} · {propio ? `hace ${minutosDesde(p.iniciado_at)}` : p.empleado}
+        </p>
+      </div>
+      <Boton variante={propio ? 'primario' : 'suave'} className={propio ? '' : 'px-3 py-2 text-xs'} onClick={() => { setFinalizando(p); setPiezas(''); }}>
+        Finalizar
+      </Boton>
+    </div>
+  );
 
   return (
     <div className="space-y-4">
       <section className="rounded-3xl bg-white p-5 shadow-sm">
         <p className="mb-3 text-lg font-black">Iniciar costal</p>
-        <Escaner onCodigo={iniciar} deshabilitado={ocupado || !!finalizando} textoAyuda="Escanea el costal a abrir" />
-        {mensaje && <div className="mt-3"><Aviso tipo={mensaje.ok ? 'exito' : 'error'}>{mensaje.texto}</Aviso></div>}
+        <Escaner onCodigo={iniciar} deshabilitado={!!finalizando} textoAyuda="Escanea el costal a abrir" />
+        {aviso && <div className="mt-3"><Aviso tipo={aviso.ok ? 'exito' : 'error'}>{aviso.texto}</Aviso></div>}
       </section>
 
       <section className="rounded-3xl bg-white p-5 shadow-sm">
         <p className="mb-3 text-lg font-black">Mis costales en proceso ({mios.length})</p>
         {mios.length === 0 && <p className="text-sm text-gray-400">No tienes costales en proceso.</p>}
-        <div className="space-y-2">
-          {mios.map((p) => (
-            <div key={p.id} className="flex items-center justify-between rounded-2xl bg-orange-50 px-3 py-3">
-              <div>
-                <p className="font-mono font-black">{p.codigo}</p>
-                <p className="text-xs text-gray-500">{p.producto ?? '—'} · hace {minutosDesde(p.iniciado_at)}</p>
-              </div>
-              <Boton onClick={() => { setFinalizando(p); setPiezas(''); setMensaje(null); }}>Finalizar</Boton>
-            </div>
-          ))}
-        </div>
+        <div className="space-y-2">{mios.map((p) => <Fila key={p.codigo} p={p} propio />)}</div>
         {otros.length > 0 && (
           <details className="mt-4">
             <summary className="cursor-pointer text-xs font-bold uppercase text-gray-400">Costales de otros compañeros ({otros.length})</summary>
-            <div className="mt-2 space-y-2">
-              {otros.map((p) => (
-                <div key={p.id} className="flex items-center justify-between rounded-2xl bg-gray-50 px-3 py-2 text-sm">
-                  <div>
-                    <p className="font-mono font-bold">{p.codigo}</p>
-                    <p className="text-xs text-gray-500">{p.empleado}</p>
-                  </div>
-                  <Boton variante="suave" className="px-3 py-2 text-xs" onClick={() => { setFinalizando(p); setPiezas(''); setMensaje(null); }}>
-                    Finalizar
-                  </Boton>
-                </div>
-              ))}
-            </div>
+            <div className="mt-2 space-y-2">{otros.map((p) => <Fila key={p.codigo} p={p} propio={false} />)}</div>
           </details>
         )}
       </section>
+
+      <Actividad sesion={sesion} sinc={sinc} desde={desde} />
 
       {finalizando && (
         <Modal titulo={`Finalizar ${finalizando.codigo}`} onCerrar={() => setFinalizando(null)}>
@@ -294,57 +364,40 @@ function Produccion({ sesion, enProceso, recargar }: { sesion: Sesion; enProceso
             {finalizando.producto ?? ''} {finalizando.empleado_id !== sesion.empleado.id && `· iniciado por ${finalizando.empleado}`}
           </p>
           <Campo etiqueta="Piezas preparadas">
-            <Entrada
-              inputMode="numeric"
-              value={piezas}
-              onChange={(e) => setPiezas(e.target.value.replace(/\D/g, ''))}
-              placeholder="0"
-              className="text-center text-4xl font-black"
-              autoFocus
-            />
+            <Entrada inputMode="numeric" value={piezas} onChange={(e) => setPiezas(e.target.value.replace(/\D/g, ''))} placeholder="0" className="text-center text-4xl font-black" autoFocus />
           </Campo>
-          <Boton className="w-full py-4" disabled={ocupado || piezas === ''} onClick={finalizar}>
-            {ocupado ? 'Guardando…' : 'Guardar y finalizar'}
-          </Boton>
+          <Boton className="w-full py-4" disabled={piezas === ''} onClick={finalizar}>Guardar y finalizar</Boton>
         </Modal>
       )}
     </div>
   );
 }
 
-function Recepcion({ sesion, inicial, categorias }: { sesion: Sesion; inicial: boolean; categorias: Categoria[] }) {
-  const sb = supabaseNavegador();
+function Recepcion({ sesion, inicial, sinc }: { sesion: Sesion; inicial: boolean; sinc: Sinc }) {
+  const [desde] = useState(() => new Date().toISOString());
   const [categoria, setCategoria] = useState('');
   const [piezas, setPiezas] = useState('');
-  const [registros, setRegistros] = useState<Registro[]>([]);
   const [pidiendo, setPidiendo] = useState<string | null>(null);
-  const [ocupado, setOcupado] = useState(false);
+  const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
+  const categorias: Categoria[] = sinc.datos.categorias;
+  const nombreCat = (id: string) => categorias.find((c) => c.id === id)?.nombre ?? null;
 
-  const enviar = async (codigo: string, cat: string | null, pz: string) => {
-    setOcupado(true);
-    const { data, error } = await sb.rpc('recibir_costal', {
-      p_token: sesion.token,
-      p_codigo: codigo,
-      p_categoria: cat || null,
-      p_piezas: pz ? Number(pz) : null,
-      p_inicial: inicial,
-    });
-    setOcupado(false);
-    const r = data as { ok: boolean; error?: string; resultado?: string; requiere_categoria?: boolean } | null;
-    if (r?.requiere_categoria) return setPidiendo(codigo);
-    const texto =
-      error?.message ||
-      (r?.ok
-        ? r.resultado === 'YA_RECIBIDO'
-          ? 'Ya estaba recibido'
-          : r.resultado === 'RECIBIDO'
-            ? 'Recibido (venía en traslado)'
-            : 'Registrado'
-        : r?.error || 'Error');
-    setRegistros((prev) => [{ codigo, texto, ok: !!r?.ok }, ...prev].slice(0, 50));
+  const registrar = (codigo: string, cat: string | null, pz: string) => {
+    sinc.agregar(
+      crearOp(sesion, 'RECIBIR', { codigo, categoria_id: cat, piezas: pz ? Number(pz) : null, inicial, producto: cat ? nombreCat(cat) : null }),
+      cat ? nombreCat(cat) : null,
+    );
+    setAviso({ ok: true, texto: `Costal ${codigo} ${inicial ? 'registrado' : 'recibido'}.` });
   };
 
-  const recibidos = registros.filter((r) => r.ok).length;
+  const alEscanear = (codigo: string) => {
+    const local = sinc.datos.costales.find((c) => c.codigo === codigo);
+    if (local?.estado === 'EN_TIENDA') return setAviso({ ok: true, texto: `El costal ${codigo} ya está en stock.` });
+    if (local?.estado === 'EN_PRODUCCION') return setAviso({ ok: false, texto: `El costal ${codigo} está en producción.` });
+    if (local?.estado === 'EN_TRANSITO') return registrar(codigo, null, '');
+    if (!categoria) return setPidiendo(codigo);
+    registrar(codigo, categoria, piezas);
+  };
 
   return (
     <div className="space-y-4">
@@ -353,7 +406,7 @@ function Recepcion({ sesion, inicial, categorias }: { sesion: Sesion; inicial: b
         <p className="text-xs text-gray-500">
           {inicial
             ? 'Escanea los costales que ya estaban en la tienda antes de usar el sistema.'
-            : 'Escanea cada costal que llega. Si venía en un traslado cargado por la bodega, se marca solo.'}
+            : 'Escanea cada costal que llega. Si venía en un traslado de la bodega, se marca solo.'}
         </p>
         <div className="grid grid-cols-3 gap-2">
           <div className="col-span-2">
@@ -364,43 +417,34 @@ function Recepcion({ sesion, inicial, categorias }: { sesion: Sesion; inicial: b
           </div>
           <Entrada inputMode="numeric" placeholder="Piezas" value={piezas} onChange={(e) => setPiezas(e.target.value.replace(/\D/g, ''))} />
         </div>
-        <Escaner onCodigo={(c) => enviar(c, categoria, piezas)} deshabilitado={ocupado || !!pidiendo} />
+        <Escaner onCodigo={alEscanear} deshabilitado={!!pidiendo} />
+        {aviso && <Aviso tipo={aviso.ok ? 'exito' : 'error'}>{aviso.texto}</Aviso>}
       </section>
 
-      <section className="rounded-3xl bg-white p-5 shadow-sm">
-        <p className="mb-2 text-sm font-black">Escaneados en esta sesión: {recibidos}</p>
-        <div className="space-y-1">
-          {registros.map((r, i) => (
-            <div key={i} className={`flex justify-between rounded-xl px-3 py-2 text-sm ${r.ok ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-700'}`}>
-              <span className="font-mono font-bold">{r.codigo}</span>
-              <span className="text-xs font-semibold">{r.texto}</span>
-            </div>
-          ))}
-        </div>
-      </section>
+      <Actividad sesion={sesion} sinc={sinc} desde={desde} />
 
       {pidiendo && (
-        <PedirProducto
-          codigo={pidiendo}
-          categorias={categorias}
-          onCerrar={() => setPidiendo(null)}
-          onOk={(cat, pz) => {
-            const codigo = pidiendo;
-            setPidiendo(null);
-            setCategoria(cat);
-            enviar(codigo, cat, pz);
-          }}
-        />
+        <Modal titulo={`Costal nuevo ${pidiendo}`} onCerrar={() => setPidiendo(null)}>
+          <PedirProducto
+            categorias={categorias}
+            onOk={(cat, pz) => {
+              const codigo = pidiendo;
+              setPidiendo(null);
+              setCategoria(cat);
+              registrar(codigo, cat, pz);
+            }}
+          />
+        </Modal>
       )}
     </div>
   );
 }
 
-function PedirProducto({ codigo, categorias, onCerrar, onOk }: { codigo: string; categorias: Categoria[]; onCerrar: () => void; onOk: (cat: string, piezas: string) => void }) {
+function PedirProducto({ categorias, onOk }: { categorias: Categoria[]; onOk: (cat: string, piezas: string) => void }) {
   const [cat, setCat] = useState('');
   const [pz, setPz] = useState('');
   return (
-    <Modal titulo={`Costal nuevo ${codigo}`} onCerrar={onCerrar}>
+    <div className="space-y-4">
       <p className="text-sm text-gray-500">Este costal no viene en ningún traslado. Elige el producto para registrarlo.</p>
       <Selector value={cat} onChange={(e) => setCat(e.target.value)}>
         <option value="">Selecciona el producto…</option>
@@ -408,6 +452,6 @@ function PedirProducto({ codigo, categorias, onCerrar, onOk }: { codigo: string;
       </Selector>
       <Entrada inputMode="numeric" placeholder="Piezas según etiqueta (opcional)" value={pz} onChange={(e) => setPz(e.target.value.replace(/\D/g, ''))} />
       <Boton className="w-full" disabled={!cat} onClick={() => onOk(cat, pz)}>Registrar</Boton>
-    </Modal>
+    </div>
   );
 }

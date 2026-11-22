@@ -259,7 +259,8 @@ eventos             (bitácora automática: quién, qué, cuándo, desde qué di
 ## Avance (22/11/2026)
 - ✅ Fase 1: superadmin, organizaciones, tiendas/centros de distribución, productos (Excel), administradores con roles, empleados con código + PIN, celulares fijados a tienda, recuperación de contraseña.
 - ✅ Fase 2: recepción e inventario inicial por escaneo, producción (iniciar/finalizar, varias personas a la vez), stock de tienda, reporte Empaque vs. producción (solo administradores, alerta ±5 piezas).
-- ⏭ Siguiente: modo sin internet (cola local + sincronización), carga del Excel de traslado desde el centro de distribución, retornos de saldo e inventarios del supervisor.
+- ✅ Fase 3: modo sin internet (cola local con id único, hora real de cada acción, ingreso de empleado sin señal por 7 días, app instalable que abre sin conexión, aviso de rechazados).
+- ⏭ Siguiente: carga del Excel de traslado desde el centro de distribución, retornos de saldo e inventarios del supervisor.
 
 ## 11. Fases
 

@@ -4,6 +4,8 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'Control de Costales',
   description: 'Control de costales desde el centro de distribución hasta la tienda.',
+  icons: { icon: '/icon.svg', apple: '/icon.svg' },
+  appleWebApp: { capable: true, title: 'Costales' },
 };
 
 export const viewport: Viewport = {
