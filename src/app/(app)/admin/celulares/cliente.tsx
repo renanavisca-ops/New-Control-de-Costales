@@ -71,6 +71,16 @@ export default function CelularesCliente({ roles }: { roles: AsignacionRol[] }) 
         Celulares de tienda
       </Titulo>
       <SelectorOrg orgs={orgs} valor={orgId} onCambio={setOrgId} />
+      <div className="mb-4 rounded-2xl border border-indigo-100 bg-indigo-50 p-4 text-sm text-indigo-900">
+        <p className="font-black">¿Dónde se produce?</p>
+        <p className="mt-1">
+          La producción, recepción, retornos e inventarios se hacen en la <b>pantalla de tienda</b>, que solo se abre en un celular activado. Para probarla desde
+          esta computadora, ábrela en una <b>ventana de incógnito</b> (si la activas aquí mismo se cerrará tu sesión de administrador).
+        </p>
+        <a href="/dispositivo/activar" target="_blank" rel="noreferrer" className="mt-2 inline-block rounded-xl bg-indigo-600 px-3 py-2 text-xs font-bold text-white">
+          Abrir pantalla de activación ↗
+        </a>
+      </div>
       <p className="mb-4 text-sm text-gray-500">
         Cada celular queda fijado a una tienda. Se activa abriendo <span className="font-bold">{urlActivacion}</span> en el celular e ingresando el código de 8 caracteres (vence en 24 horas).
       </p>

@@ -5,8 +5,11 @@ import { esSuperadmin, tieneAlgunRol, type AsignacionRol, type Rol } from '@/lib
 
 const ITEMS: { href: string; etiqueta: string; roles: Rol[] | 'SUPER' }[] = [
   { href: '/', etiqueta: 'Inicio', roles: ['ADMIN_ORG', 'SUPERVISOR', 'BODEGA', 'AUDITOR'] },
+  { href: '/admin/en-vivo', etiqueta: 'Producción en vivo', roles: ['ADMIN_ORG', 'SUPERVISOR', 'AUDITOR'] },
   { href: '/admin/costales', etiqueta: 'Costales', roles: ['ADMIN_ORG', 'SUPERVISOR', 'BODEGA', 'AUDITOR'] },
   { href: '/admin/produccion', etiqueta: 'Empaque vs. producción', roles: ['ADMIN_ORG', 'AUDITOR'] },
+  { href: '/admin/inventarios', etiqueta: 'Inventarios', roles: ['ADMIN_ORG', 'SUPERVISOR', 'AUDITOR'] },
+  { href: '/admin/retornos', etiqueta: 'Retornos de saldo', roles: ['ADMIN_ORG', 'SUPERVISOR', 'BODEGA', 'AUDITOR'] },
   { href: '/admin/organizaciones', etiqueta: 'Organizaciones', roles: 'SUPER' },
   { href: '/admin/tiendas', etiqueta: 'Tiendas', roles: ['ADMIN_ORG', 'SUPERVISOR', 'BODEGA', 'AUDITOR'] },
   { href: '/admin/categorias', etiqueta: 'Productos', roles: ['ADMIN_ORG', 'BODEGA', 'AUDITOR'] },

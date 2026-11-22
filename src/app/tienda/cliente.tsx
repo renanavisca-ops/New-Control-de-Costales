@@ -9,7 +9,7 @@ import { useSincronizacion } from '@/lib/offline/sincronizacion';
 
 type Empleado = { id: string; codigo: string; nombre: string };
 type Sesion = { token: string; empleado: Empleado };
-type Vista = 'INICIO' | 'PRODUCCION' | 'RECIBIR' | 'INICIAL' | 'STOCK';
+type Vista = 'INICIO' | 'PRODUCCION' | 'RECIBIR' | 'INICIAL' | 'STOCK' | 'RETORNO' | 'INVENTARIO';
 type Sinc = ReturnType<typeof useSincronizacion>;
 
 const INACTIVIDAD_MS = 3 * 60 * 1000;
@@ -19,7 +19,7 @@ const minutosDesde = (iso: string) => {
   return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
 };
 
-const TEXTO_OP: Record<TipoOp, string> = { RECIBIR: 'Recibido', INICIAR: 'Iniciado', FINALIZAR: 'Finalizado' };
+const TEXTO_OP: Record<TipoOp, string> = { RECIBIR: 'Recibido', INICIAR: 'Iniciado', FINALIZAR: 'Finalizado', RETORNO: 'Retorno enviado', INVENTARIO: 'Contado' };
 
 export default function TiendaCliente({
   tienda,
@@ -101,6 +101,15 @@ export default function TiendaCliente({
             <Mosaico icono="📥" titulo="Recibir" detalle="Costales que llegan" onClick={() => abrir('RECIBIR')} />
             <Mosaico icono="📋" titulo="Inventario inicial" detalle="Costales que ya estaban" onClick={() => abrir('INICIAL')} />
             <Mosaico icono="📦" titulo="Stock" detalle="Costales sin abrir" onClick={() => abrir('STOCK')} />
+            <Mosaico icono="↩️" titulo="Retorno de saldo" detalle="Enviar saldo al centro" onClick={() => abrir('RETORNO')} />
+            {sinc.datos.inventario && (
+              <Mosaico
+                icono="🔍"
+                titulo="Inventario"
+                detalle={`${sinc.datos.inventario.leidos.length} de ${sinc.datos.inventario.esperados} contados`}
+                onClick={() => abrir('INVENTARIO')}
+              />
+            )}
           </div>
           <section className="rounded-3xl bg-white p-5 shadow-sm">
             <p className="mb-3 text-xs font-black uppercase tracking-wide text-gray-400">En producción ahora ({sinc.datos.en_proceso.length})</p>
@@ -122,6 +131,8 @@ export default function TiendaCliente({
 
       {vista === 'PRODUCCION' && sesion && <Produccion sesion={sesion} sinc={sinc} />}
       {(vista === 'RECIBIR' || vista === 'INICIAL') && sesion && <Recepcion sesion={sesion} inicial={vista === 'INICIAL'} sinc={sinc} />}
+      {vista === 'RETORNO' && sesion && <Retorno sesion={sesion} sinc={sinc} tiendaCodigo={tienda.codigo} />}
+      {vista === 'INVENTARIO' && sesion && <Inventario sesion={sesion} sinc={sinc} />}
       {vista === 'STOCK' && (
         <section className="rounded-3xl bg-white p-5 shadow-sm">
           <p className="mb-3 text-lg font-black">Stock en tienda</p>
@@ -280,7 +291,7 @@ function Actividad({ sesion, sinc, desde }: { sesion: Sesion; sinc: Sinc; desde:
             <span className="font-mono font-bold">{String(o.datos.codigo)}</span>
             <span className="text-xs font-semibold">
               {o.estado === 'PENDIENTE' ? '⏳ ' : o.estado === 'OK' ? '✓ ' : '✗ '}
-              {o.estado === 'ERROR' ? o.error : o.resultado === 'YA_RECIBIDO' ? 'Ya estaba recibido' : TEXTO_OP[o.tipo]}
+              {o.estado === 'ERROR' ? o.error : o.resultado === 'YA_RECIBIDO' ? 'Ya estaba recibido' : o.resultado === 'YA_LEIDO' ? 'Ya estaba contado' : TEXTO_OP[o.tipo]}
               {o.tipo === 'FINALIZAR' && o.estado !== 'ERROR' ? ` · ${o.datos.piezas} pzs` : ''}
             </span>
           </div>
@@ -452,6 +463,109 @@ function PedirProducto({ categorias, onOk }: { categorias: Categoria[]; onOk: (c
       </Selector>
       <Entrada inputMode="numeric" placeholder="Piezas según etiqueta (opcional)" value={pz} onChange={(e) => setPz(e.target.value.replace(/\D/g, ''))} />
       <Boton className="w-full" disabled={!cat} onClick={() => onOk(cat, pz)}>Registrar</Boton>
+    </div>
+  );
+}
+
+const ALFABETO = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const codigoSaldo = (tienda: string) =>
+  `SAL-${tienda.toUpperCase()}-${Array.from(crypto.getRandomValues(new Uint8Array(4)), (b) => ALFABETO[b % ALFABETO.length]).join('')}`;
+
+function Retorno({ sesion, sinc, tiendaCodigo }: { sesion: Sesion; sinc: Sinc; tiendaCodigo: string }) {
+  const [desde] = useState(() => new Date().toISOString());
+  const [lineas, setLineas] = useState<{ categoria_id: string; piezas: string }[]>([{ categoria_id: '', piezas: '' }]);
+  const [generado, setGenerado] = useState<string | null>(null);
+  const [error, setError] = useState('');
+  const categorias = sinc.datos.categorias;
+  const total = lineas.reduce((a, l) => a + (Number(l.piezas) || 0), 0);
+
+  const cambiar = (i: number, c: Partial<{ categoria_id: string; piezas: string }>) =>
+    setLineas(lineas.map((l, j) => (j === i ? { ...l, ...c } : l)));
+
+  const generar = () => {
+    setError('');
+    const validas = lineas.filter((l) => l.categoria_id && Number(l.piezas) > 0);
+    if (!validas.length) return setError('Agrega al menos un producto con sus piezas.');
+    if (validas.length !== lineas.filter((l) => l.categoria_id || l.piezas).length) return setError('Revisa las líneas: cada una necesita producto y piezas.');
+    // Se agrupan líneas del mismo producto
+    const agrupadas = new Map<string, number>();
+    validas.forEach((l) => agrupadas.set(l.categoria_id, (agrupadas.get(l.categoria_id) ?? 0) + Number(l.piezas)));
+    const codigo = codigoSaldo(tiendaCodigo);
+    sinc.agregar(
+      crearOp(sesion, 'RETORNO', { codigo, lineas: Array.from(agrupadas, ([categoria_id, piezas]) => ({ categoria_id, piezas })) }),
+      null,
+    );
+    setGenerado(codigo);
+    setLineas([{ categoria_id: '', piezas: '' }]);
+  };
+
+  return (
+    <div className="space-y-4">
+      <section className="space-y-3 rounded-3xl bg-white p-5 shadow-sm">
+        <p className="text-lg font-black">Retorno de saldo</p>
+        <p className="text-xs text-gray-500">
+          Registra lo que va en el saco (puede ir mezclado). Destino: <b>{sinc.datos.destino_saldo?.nombre ?? 'centro de distribución'}</b>.
+        </p>
+        {lineas.map((l, i) => (
+          <div key={i} className="grid grid-cols-6 gap-2">
+            <div className="col-span-4">
+              <Selector value={l.categoria_id} onChange={(e) => cambiar(i, { categoria_id: e.target.value })}>
+                <option value="">Producto…</option>
+                {categorias.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+              </Selector>
+            </div>
+            <Entrada className="col-span-2" inputMode="numeric" placeholder="Piezas" value={l.piezas} onChange={(e) => cambiar(i, { piezas: e.target.value.replace(/\D/g, '') })} />
+          </div>
+        ))}
+        <Boton variante="suave" className="w-full" onClick={() => setLineas([...lineas, { categoria_id: '', piezas: '' }])}>+ Otro producto</Boton>
+        <p className="text-right text-sm font-black">Total: {total} piezas</p>
+        {error && <Aviso tipo="error">{error}</Aviso>}
+        <Boton className="w-full py-4" onClick={generar}>Generar código del saco</Boton>
+      </section>
+
+      <Actividad sesion={sesion} sinc={sinc} desde={desde} />
+
+      {generado && (
+        <Modal titulo="Escribe este código en el saco" onCerrar={() => setGenerado(null)}>
+          <p className="select-all rounded-2xl bg-indigo-50 p-5 text-center font-mono text-3xl font-black tracking-wider text-indigo-900">{generado}</p>
+          <p className="text-sm text-gray-500">Escríbelo grande con marcador. El centro de distribución lo usará para recibir y contar el saldo.</p>
+          <Boton className="w-full" onClick={() => setGenerado(null)}>Listo</Boton>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function Inventario({ sesion, sinc }: { sesion: Sesion; sinc: Sinc }) {
+  const [desde] = useState(() => new Date().toISOString());
+  const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
+  const inv = sinc.datos.inventario;
+  if (!inv) return <Aviso tipo="info">No hay un inventario abierto en esta tienda.</Aviso>;
+
+  const leer = (codigo: string) => {
+    if (inv.leidos.includes(codigo)) return setAviso({ ok: true, texto: `${codigo} ya estaba contado.` });
+    sinc.agregar(crearOp(sesion, 'INVENTARIO', { codigo, inventario_id: inv.id }), null);
+    setAviso({ ok: true, texto: `${codigo} contado.` });
+  };
+
+  return (
+    <div className="space-y-4">
+      <section className="space-y-3 rounded-3xl bg-white p-5 shadow-sm">
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-lg font-black">Inventario {inv.tipo === 'COMPLETO' ? 'completo' : 'selectivo'}</p>
+            {inv.tipo === 'SELECTIVO' && <p className="text-xs text-gray-500">Solo: {inv.productos.join(', ')}</p>}
+          </div>
+          <div className="rounded-2xl bg-indigo-50 px-4 py-2 text-center">
+            <p className="text-[10px] font-black uppercase text-indigo-500">Contados</p>
+            <p className="text-xl font-black text-indigo-700">{inv.leidos.length}/{inv.esperados}</p>
+          </div>
+        </div>
+        <p className="text-xs text-gray-500">Escanea cada costal que encuentres físicamente. El supervisor cierra el inventario desde el panel.</p>
+        <Escaner onCodigo={leer} textoAyuda="Escanea cada costal" />
+        {aviso && <Aviso tipo={aviso.ok ? 'exito' : 'error'}>{aviso.texto}</Aviso>}
+      </section>
+      <Actividad sesion={sesion} sinc={sinc} desde={desde} />
     </div>
   );
 }
