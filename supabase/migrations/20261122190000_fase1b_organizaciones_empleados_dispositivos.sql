@@ -4,16 +4,8 @@
 --   un centro puede abastecer a otras organizaciones
 --   administradores con roles por organización/tienda
 --   empleados con código + PIN, celulares fijados a una tienda
--- Reemplaza el esquema de la fase 1 (solo tenía datos semilla).
+-- Se aplica después de 20261122185900_fase1b_limpieza_esquema_anterior.sql
 -- =========================================================
-
--- Limpieza del esquema anterior
-drop function if exists public.crear_empresa(text);
-drop function if exists public.marcar_password_cambiada();
-drop table if exists public.perfil_bodegas, public.perfiles, public.categorias, public.bodegas,
-  public.centro_empresas, public.empresas, public.centros cascade;
-drop function if exists app.mi_rol(), app.mi_centro(), app.mi_empresa(), app.empresas_visibles(), app.centros_visibles();
-drop type if exists public.rol_usuario, public.tipo_bodega;
 
 create extension if not exists pgcrypto with schema extensions;
 
@@ -478,3 +470,6 @@ select o.id, x.nombre from public.organizaciones o,
           ('ROPA C'),('ZAPATO C'),('ACCESORIOS C'),('ELECTRONICOS C'),('BISUTERIA C'),('JUGUETE C'),
           ('ROPA GRANDE C'),('PACA C'),('TEXTIL A'),('TEXTIL B'),('TEXTIL C')) as x(nombre)
 where o.prefijo_empleado = 'PTA';
+
+-- Superadmin inicial: se asignó manualmente al usuario dueño de la plataforma
+-- (insert en public.administradores + asignaciones_rol con rol SUPERADMIN).
