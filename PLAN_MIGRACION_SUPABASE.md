@@ -83,7 +83,8 @@ TOTAL 210 piezas | 750 | 199.2 lb  —  Total Costales: 13
 
 La app va a **leer este reporte tal como sale del sistema, sin que nadie lo modifique**:
 - De la cabecera toma: **número de traslado**, referencia, fecha y **bodega de entrada** (B105). Esta última se asocia a la tienda: cada tienda tendrá su código de bodega.
-- De cada fila `EMP02…` toma: código, **piezas, precio y peso**, y la **clasificación** (B o C) según la sección donde aparece.
+- De cada fila `EMP02…` toma: código, **piezas, precio y peso**, y la **categoría** según la sección donde aparece. El dueño va a cambiar el reporte para que cada sección diga la categoría completa (por ejemplo "ROPA B") en lugar de solo "CLACIFICACION B". El lector va a aceptar los dos formatos.
+- Si el Excel trae una **categoría nueva**, la app la crea en el centro y queda disponible para todas las tiendas.
 - Valida contra los totales del reporte (13 costales y 210 piezas) para asegurarse de que se leyó completo.
 
 **Flujo:**
@@ -173,20 +174,43 @@ Siempre se valida el formato (`EMP02` seguido de dígitos para costales y `SAL-`
 
 ---
 
-## 8. Pensado para comercializar (multiempresa)
+## 8. Centro de distribución y empresas (multiempresa)
 
-Como existe la posibilidad de venderla, **todas las tablas llevan `empresa_id` desde el inicio**. Cada empresa ve solo sus datos, protegido por RLS en la base de datos. Hoy habrá una sola empresa, pero no habrá que rehacer nada si después se suman clientes.
+Hay dos tipos de organización:
+
+```
+                 ┌──────────────────────────────┐
+                 │ CENTRO DE DISTRIBUCIÓN        │  (bodega central)
+                 │  · crea las bodegas           │
+                 │  · define las categorías      │
+                 │  · sube los traslados (Excel) │
+                 └──────────┬───────────────────┘
+          ┌─────────────────┼─────────────────┐
+          ▼                 ▼                 ▼
+   EMPRESA A           EMPRESA B           EMPRESA C        (clientes del centro)
+   ├ Bodega B105 (Tienda 5)
+   ├ Bodega B106 (Tienda 6)
+   └ …
+```
+
+- **El centro de distribución crea las bodegas** (código como B105, nombre y empresa a la que pertenece). El código coincide con la "BODEGA DE ENTRADA" del Excel, así que al subir un traslado la app sabe sola a qué tienda y a qué empresa va.
+- **Un centro puede abastecer a varias empresas.** Cada empresa ve solo sus tiendas, su stock y sus reportes. El centro ve el estado de todo lo que despachó, a todas las empresas.
+- **Las categorías son del centro.** Si se agrega una categoría nueva en el centro (o aparece en un Excel), queda disponible al instante en todas las tiendas de todas las empresas que abastece.
+- Todo está protegido por RLS en la base de datos. Hoy existirán un centro ("Paca Tu Amigo") y una empresa, pero el sistema queda listo para comercializarse sin rehacer nada.
 
 ---
 
 ## 9. Modelo de datos
 
 ```
+centros             (id, nombre)                          -- centro de distribución
 empresas            (id, nombre, activa)
-tiendas             (id, empresa_id, codigo, nombre, direccion, es_bodega_central, activa)
-perfiles            (id=auth.users, empresa_id, nombre, email, rol, activo)
-perfil_tiendas      (perfil_id, tienda_id)              -- un supervisor puede tener varias
-categorias          (id, empresa_id, nombre, piezas_esperadas, libras_esperadas?, activa)
+centro_empresas     (centro_id, empresa_id)               -- un centro abastece a varias empresas
+bodegas             (id, centro_id, empresa_id, codigo 'B105', nombre 'Tienda 5', direccion,
+                     tipo [CENTRAL|TIENDA], activa)       -- las crea el centro
+perfiles            (id=auth.users, centro_id?, empresa_id?, nombre, email, rol, activo)
+perfil_bodegas      (perfil_id, bodega_id)                -- un supervisor puede tener varias
+categorias          (id, centro_id, nombre, activa)       -- del centro, compartidas con sus empresas
 
 despachos           (id, empresa_id, numero, bodega_id, tienda_destino_id, estado
                      [BORRADOR|ENVIADO|RECIBIDO_PARCIAL|RECIBIDO], creado_por, enviado_at)
@@ -255,16 +279,18 @@ eventos             (bitácora automática: quién, qué, cuándo, desde qué di
 - Saldo: mezclado; un retorno tiene varias líneas por clasificación.
 - Tiendas **sin balanza**: las piezas mandan; el peso es solo informativo (viene del Excel).
 - Un supervisor cubre **varias tiendas**.
-- **Alerta desde 5 piezas** de diferencia por costal. Además, **todas** las diferencias (aunque sean de 1 pieza) se acumulan en reportes por clasificación, operador, tienda y traslado, para ver tendencias.
+- **Empaque contra producción:** "empaque" son las piezas que la bodega puso en el costal (según el Excel) y "producción" son las piezas que la tienda cuenta al abrirlo. La diferencia es el indicador principal de la app.
+  - **Alerta desde 5 piezas** de diferencia por costal.
+  - **Todas** las diferencias, aunque sean de 1 pieza, se ven en el reporte "Empaque vs. Producción", agrupado por categoría, traslado, tienda, operador y fecha, en piezas y en quetzales.
+- Supabase: **proyecto separado** `control-de-costales`.
+- El **centro de distribución crea las bodegas** y puede abastecer a **varias empresas**.
 - Permisos: se implementan los de la sección 4 como punto de partida, y el admin podrá ajustarlos más adelante.
 
 ## 13. Costo de Supabase
 La organización está en el plan **Pro** ($25 al mes), que incluye $10 de crédito de cómputo, o sea, alrededor de 1 proyecto pequeño. Cada proyecto activo adicional cuesta unos **$10 al mes**. Un proyecto pausado no consumía cómputo, así que borrar "Agente de Responsabilidades" no redujo el costo, y crear `control-de-costales` lo sube unos $10 al mes.
 
-Alternativa sin costo extra: poner Costales **dentro del proyecto de Asistencia biométrica**, en un esquema propio (`costales`), y borrar `control-de-costales`. *(Decisión del dueño.)*
+**Decisión del dueño:** se mantiene como **proyecto separado**.
 
 ## 14. Preguntas pendientes
-1. ¿Qué es una **"producción"**? ¿Es un traslado, un lote de clasificación o la persona de bodega que armó el costal?
-2. En el Excel solo aparece la **clasificación (B, C)**, no el tipo (ROPA, ZAPATO…). ¿Hace falta el tipo, o basta la clasificación?
-3. ¿Cuál es el **código de bodega** de cada tienda (B105 = Tienda 5)?
-4. Costo: ¿proyecto propio (unos $10 al mes) o dentro de Asistencia biométrica ($0)?
+1. Cuando esté listo, enviar un **Excel de ejemplo con el reporte nuevo** (con las categorías completas) para ajustar el lector.
+2. Los usuarios del centro de distribución (rol BODEGA), ¿también deben poder **ver los reportes de empaque contra producción** de las empresas que abastecen?
