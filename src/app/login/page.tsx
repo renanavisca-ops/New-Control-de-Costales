@@ -43,6 +43,7 @@ export default function LoginPage() {
           {cargando ? 'Entrando…' : 'Iniciar sesión'}
         </Boton>
         <p className="text-center text-xs text-gray-400">¿Olvidaste tu contraseña? Pide a tu administrador que la restablezca.</p>
+        <a href="/dispositivo/activar" className="block text-center text-xs font-bold text-indigo-600">¿Es el celular de una tienda? Actívalo aquí</a>
       </form>
     </main>
   );

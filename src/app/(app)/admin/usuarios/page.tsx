@@ -1,10 +1,10 @@
 import { redirect } from 'next/navigation';
-import { obtenerSesion } from '@/lib/perfil';
-import { esAdmin } from '@/lib/tipos';
-import UsuariosCliente from './cliente';
+import { obtenerContexto } from '@/lib/contexto';
+import { tieneAlgunRol } from '@/lib/tipos';
+import Cliente from './cliente';
 
 export default async function Page() {
-  const { perfil } = await obtenerSesion();
-  if (!perfil || !esAdmin(perfil.rol)) redirect('/');
-  return <UsuariosCliente actor={perfil} />;
+  const { contexto } = await obtenerContexto();
+  if (contexto.tipo !== 'ADMIN' || !tieneAlgunRol(contexto.roles, ['ADMIN_ORG'])) redirect('/');
+  return <Cliente roles={contexto.roles} miId={contexto.admin.id} />;
 }

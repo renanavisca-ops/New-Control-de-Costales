@@ -1,49 +1,95 @@
-export type Rol = 'ADMIN_CENTRO' | 'BODEGA' | 'ADMIN_EMPRESA' | 'SUPERVISOR' | 'OPERADOR';
-
-export const ROLES_CENTRO: Rol[] = ['ADMIN_CENTRO', 'BODEGA'];
-export const ROLES_EMPRESA: Rol[] = ['ADMIN_EMPRESA', 'SUPERVISOR', 'OPERADOR'];
+export type Rol = 'SUPERADMIN' | 'ADMIN_ORG' | 'SUPERVISOR' | 'BODEGA' | 'AUDITOR';
 
 export const NOMBRE_ROL: Record<Rol, string> = {
-  ADMIN_CENTRO: 'Admin. Centro',
-  BODEGA: 'Bodega Central',
-  ADMIN_EMPRESA: 'Admin. Empresa',
+  SUPERADMIN: 'Superadmin',
+  ADMIN_ORG: 'Admin. organización',
   SUPERVISOR: 'Supervisor',
-  OPERADOR: 'Operador',
+  BODEGA: 'Bodega',
+  AUDITOR: 'Auditor',
 };
 
-export interface Perfil {
+export const DESCRIPCION_ROL: Record<Rol, string> = {
+  SUPERADMIN: 'Control total de la plataforma',
+  ADMIN_ORG: 'Administra una organización completa',
+  SUPERVISOR: 'Supervisa tiendas asignadas e inventarios',
+  BODEGA: 'Opera un centro de distribución o bodega',
+  AUDITOR: 'Solo lectura de una organización',
+};
+
+export interface AsignacionRol {
+  rol: Rol;
+  organizacion_id: string | null;
+  tienda_id: string | null;
+}
+
+export interface Administrador {
   id: string;
   email: string;
   nombre: string;
-  rol: Rol;
-  centro_id: string | null;
-  empresa_id: string | null;
   activo: boolean;
   debe_cambiar_password: boolean;
 }
 
-export interface Empresa {
+export type Contexto =
+  | { tipo: 'ADMIN'; admin: Administrador; roles: AsignacionRol[] }
+  | {
+      tipo: 'DISPOSITIVO';
+      dispositivo: { id: string; nombre: string; estado: string };
+      tienda: { id: string; codigo: string; nombre: string; es_central: boolean };
+      organizacion: { id: string; nombre: string };
+    }
+  | { tipo: 'NINGUNO' };
+
+export interface Organizacion {
   id: string;
   nombre: string;
+  prefijo_empleado: string;
   activa: boolean;
 }
 
-export interface Bodega {
+export interface Tienda {
   id: string;
-  centro_id: string;
-  empresa_id: string | null;
+  organizacion_id: string;
   codigo: string;
   nombre: string;
   direccion: string | null;
-  tipo: 'CENTRAL' | 'TIENDA';
+  es_central: boolean;
   activa: boolean;
 }
 
 export interface Categoria {
   id: string;
-  centro_id: string;
+  organizacion_id: string;
   nombre: string;
   activa: boolean;
 }
 
-export const esAdmin = (rol?: Rol | null) => rol === 'ADMIN_CENTRO' || rol === 'ADMIN_EMPRESA';
+export interface Empleado {
+  id: string;
+  organizacion_id: string;
+  codigo: string;
+  nombre: string;
+  apellidos: string | null;
+  activo: boolean;
+}
+
+export interface Dispositivo {
+  id: string;
+  organizacion_id: string;
+  tienda_id: string;
+  nombre: string;
+  estado: 'PENDIENTE' | 'ACTIVO' | 'BLOQUEADO';
+  codigo_expira: string | null;
+  activado_at: string | null;
+  ultimo_contacto: string | null;
+}
+
+export const esSuperadmin = (roles: AsignacionRol[]) => roles.some((r) => r.rol === 'SUPERADMIN');
+
+export const tieneRol = (roles: AsignacionRol[], orgId: string | null, permitidos: Rol[]) =>
+  esSuperadmin(roles) || roles.some((r) => r.organizacion_id === orgId && permitidos.includes(r.rol));
+
+export const puedeAdministrarOrg = (roles: AsignacionRol[], orgId: string | null) => tieneRol(roles, orgId, ['ADMIN_ORG']);
+
+export const tieneAlgunRol = (roles: AsignacionRol[], permitidos: Rol[]) =>
+  esSuperadmin(roles) || roles.some((r) => permitidos.includes(r.rol));

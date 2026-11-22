@@ -1,123 +1,95 @@
 'use client';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { supabaseNavegador } from '@/lib/supabase/client';
-import { NOMBRE_ROL, ROLES_CENTRO, ROLES_EMPRESA, type Bodega, type Empresa, type Perfil, type Rol } from '@/lib/tipos';
+import { cargarOrgsPropias } from '@/lib/datos';
+import {
+  DESCRIPCION_ROL, NOMBRE_ROL, esSuperadmin, puedeAdministrarOrg,
+  type Administrador, type AsignacionRol, type Organizacion, type Rol, type Tienda,
+} from '@/lib/tipos';
 import { Aviso, Boton, Campo, Entrada, Insignia, Modal, Selector, Tarjeta, Titulo } from '@/components/ui';
 
-type Form = {
-  id?: string;
-  nombre: string;
-  email: string;
-  rol: Rol;
-  empresa_id: string | null;
-  bodega_ids: string[];
-  activo: boolean;
-};
+type Fila = AsignacionRol & { administrador_id: string };
+type Form = { id?: string; nombre: string; email: string; activo: boolean; roles: AsignacionRol[] };
+type Respuesta = { ok: boolean; error?: string; data?: { password_temporal?: string } };
 
-type RespuestaFuncion = { ok: boolean; error?: string; data?: { password_temporal?: string } };
+const REQUIERE_TIENDA: Rol[] = ['SUPERVISOR', 'BODEGA'];
 
-async function llamarFuncion(body: Record<string, unknown>): Promise<RespuestaFuncion> {
-  const sb = supabaseNavegador();
-  const { data, error } = await sb.functions.invoke('gestionar-usuarios', { body });
+async function llamar(body: Record<string, unknown>): Promise<Respuesta> {
+  const { data, error } = await supabaseNavegador().functions.invoke('gestionar-usuarios', { body });
   if (error) {
     const ctx = (error as { context?: Response }).context;
-    if (ctx && typeof ctx.json === 'function') {
-      try {
-        const j = await ctx.json();
-        return { ok: false, error: j.error || error.message };
-      } catch {
-        /* sin cuerpo JSON */
-      }
+    try {
+      if (ctx) return { ok: false, error: (await ctx.json()).error || error.message };
+    } catch {
+      /* sin cuerpo */
     }
     return { ok: false, error: error.message };
   }
-  return data as RespuestaFuncion;
+  return data as Respuesta;
 }
 
-export default function UsuariosCliente({ actor }: { actor: Perfil }) {
+export default function UsuariosCliente({ roles, miId }: { roles: AsignacionRol[]; miId: string }) {
   const sb = supabaseNavegador();
-  const [usuarios, setUsuarios] = useState<Perfil[]>([]);
-  const [asignaciones, setAsignaciones] = useState<{ perfil_id: string; bodega_id: string }[]>([]);
-  const [bodegas, setBodegas] = useState<Bodega[]>([]);
-  const [empresas, setEmpresas] = useState<Empresa[]>([]);
+  const superadmin = esSuperadmin(roles);
+  const [admins, setAdmins] = useState<Administrador[]>([]);
+  const [filas, setFilas] = useState<Fila[]>([]);
+  const [orgs, setOrgs] = useState<Organizacion[]>([]);
+  const [tiendas, setTiendas] = useState<Tienda[]>([]);
   const [form, setForm] = useState<Form | null>(null);
   const [error, setError] = useState('');
   const [cargando, setCargando] = useState(false);
   const [credencial, setCredencial] = useState<{ email: string; password: string } | null>(null);
 
-  const rolesPermitidos: Rol[] = actor.rol === 'ADMIN_CENTRO' ? [...ROLES_CENTRO, ...ROLES_EMPRESA] : ROLES_EMPRESA;
+  const orgsAdministrables = orgs.filter((o) => puedeAdministrarOrg(roles, o.id));
+  const rolesDisponibles: Rol[] = superadmin ? ['SUPERADMIN', 'ADMIN_ORG', 'SUPERVISOR', 'BODEGA', 'AUDITOR'] : ['ADMIN_ORG', 'SUPERVISOR', 'BODEGA', 'AUDITOR'];
 
   const cargar = useCallback(async () => {
-    const [u, a, b, e] = await Promise.all([
-      sb.from('perfiles').select('*').order('nombre'),
-      sb.from('perfil_bodegas').select('*'),
-      sb.from('bodegas').select('*').eq('activa', true).order('codigo'),
-      sb.from('empresas').select('*').order('nombre'),
+    const [a, r, t] = await Promise.all([
+      sb.from('administradores').select('id, email, nombre, activo, debe_cambiar_password').order('nombre'),
+      sb.from('asignaciones_rol').select('administrador_id, rol, organizacion_id, tienda_id'),
+      sb.from('tiendas').select('*').order('codigo'),
     ]);
-    setUsuarios((u.data as Perfil[]) || []);
-    setAsignaciones(a.data || []);
-    setBodegas((b.data as Bodega[]) || []);
-    setEmpresas((e.data as Empresa[]) || []);
-  }, [sb]);
+    setAdmins((a.data as Administrador[]) || []);
+    setFilas((r.data as Fila[]) || []);
+    setTiendas((t.data as Tienda[]) || []);
+    setOrgs(await cargarOrgsPropias(roles));
+  }, [sb, roles]);
 
   useEffect(() => {
     cargar();
   }, [cargar]);
 
-  const nombreEmpresa = (id: string | null) => empresas.find((e) => e.id === id)?.nombre ?? '';
-  const bodegasDe = (perfilId: string) =>
-    asignaciones
-      .filter((a) => a.perfil_id === perfilId)
-      .map((a) => bodegas.find((b) => b.id === a.bodega_id)?.codigo)
-      .filter(Boolean)
-      .join(', ');
+  const nombreOrg = (id: string | null) => orgs.find((o) => o.id === id)?.nombre ?? '';
+  const nombreTienda = (id: string | null) => tiendas.find((t) => t.id === id)?.codigo ?? '';
+  const describir = (r: AsignacionRol) =>
+    [NOMBRE_ROL[r.rol], r.organizacion_id && nombreOrg(r.organizacion_id), r.tienda_id && nombreTienda(r.tienda_id)].filter(Boolean).join(' · ');
 
-  const esRolEmpresa = (r: Rol) => ROLES_EMPRESA.includes(r);
+  const rolVacio = (): AsignacionRol => ({ rol: 'ADMIN_ORG', organizacion_id: orgsAdministrables[0]?.id ?? null, tienda_id: null });
 
-  const bodegasDisponibles = useMemo(() => {
-    if (!form) return [];
-    return esRolEmpresa(form.rol)
-      ? bodegas.filter((b) => b.empresa_id === form.empresa_id)
-      : bodegas.filter((b) => b.tipo === 'CENTRAL');
-  }, [form, bodegas]);
-
-  const abrirNuevo = () => {
-    const rol = rolesPermitidos.includes('OPERADOR') ? 'OPERADOR' : rolesPermitidos[0];
-    setForm({ nombre: '', email: '', rol, empresa_id: actor.empresa_id ?? empresas[0]?.id ?? null, bodega_ids: [], activo: true });
-    setError('');
-  };
-
-  const abrirEdicion = (u: Perfil) => {
-    setForm({
-      id: u.id,
-      nombre: u.nombre,
-      email: u.email,
-      rol: u.rol,
-      empresa_id: u.empresa_id,
-      bodega_ids: asignaciones.filter((a) => a.perfil_id === u.id).map((a) => a.bodega_id),
-      activo: u.activo,
-    });
-    setError('');
-  };
-
-  const alternarBodega = (id: string) => {
+  const cambiarRol = (i: number, cambios: Partial<AsignacionRol>) => {
     if (!form) return;
-    const tiene = form.bodega_ids.includes(id);
-    setForm({ ...form, bodega_ids: tiene ? form.bodega_ids.filter((b) => b !== id) : [...form.bodega_ids, id] });
+    const roles2 = form.roles.map((r, j) => {
+      if (j !== i) return r;
+      const nuevo = { ...r, ...cambios };
+      if (nuevo.rol === 'SUPERADMIN') return { rol: nuevo.rol, organizacion_id: null, tienda_id: null };
+      if (!nuevo.organizacion_id) nuevo.organizacion_id = orgsAdministrables[0]?.id ?? null;
+      if (!REQUIERE_TIENDA.includes(nuevo.rol)) nuevo.tienda_id = null;
+      if (cambios.organizacion_id) nuevo.tienda_id = null;
+      return nuevo;
+    });
+    setForm({ ...form, roles: roles2 });
   };
 
   const guardar = async () => {
     if (!form) return;
     setError('');
     if (!form.nombre.trim() || (!form.id && !form.email.trim())) return setError('Nombre y correo son obligatorios.');
-    if (esRolEmpresa(form.rol) && !form.empresa_id) return setError('Selecciona la empresa.');
-    if ((form.rol === 'OPERADOR' || form.rol === 'SUPERVISOR') && form.bodega_ids.length === 0)
-      return setError('Asigna al menos una bodega (tienda).');
-
+    if (!form.roles.length) return setError('Agrega al menos un rol.');
+    if (form.roles.some((r) => REQUIERE_TIENDA.includes(r.rol) && !r.tienda_id)) return setError('Supervisor y Bodega requieren una tienda.');
     setCargando(true);
     const res = form.id
-      ? await llamarFuncion({ accion: 'actualizar', id: form.id, nombre: form.nombre, rol: form.rol, activo: form.activo, bodega_ids: form.bodega_ids })
-      : await llamarFuncion({ accion: 'crear', nombre: form.nombre, email: form.email, rol: form.rol, empresa_id: form.empresa_id, bodega_ids: form.bodega_ids });
+      ? await llamar({ accion: 'actualizar', id: form.id, nombre: form.nombre, activo: form.activo, ...(form.id !== miId ? { roles: form.roles } : {}) })
+      : await llamar({ accion: 'crear', nombre: form.nombre, email: form.email, roles: form.roles });
     setCargando(false);
     if (!res.ok) return setError(res.error || 'No se pudo guardar.');
     if (!form.id && res.data?.password_temporal) setCredencial({ email: form.email.trim().toLowerCase(), password: res.data.password_temporal });
@@ -125,39 +97,44 @@ export default function UsuariosCliente({ actor }: { actor: Perfil }) {
     cargar();
   };
 
-  const resetear = async (u: Perfil) => {
-    if (!confirm(`¿Generar una contraseña temporal nueva para ${u.nombre}?`)) return;
-    const res = await llamarFuncion({ accion: 'resetear_password', id: u.id });
+  const resetear = async (a: Administrador) => {
+    if (!confirm(`¿Generar una contraseña temporal nueva para ${a.nombre}?`)) return;
+    const res = await llamar({ accion: 'resetear_password', id: a.id });
     if (!res.ok) return alert(res.error);
-    if (res.data?.password_temporal) setCredencial({ email: u.email, password: res.data.password_temporal });
+    if (res.data?.password_temporal) setCredencial({ email: a.email, password: res.data.password_temporal });
   };
 
   return (
     <div>
-      <Titulo accion={<Boton onClick={abrirNuevo}>+ Usuario</Boton>}>Usuarios</Titulo>
+      <Titulo accion={<Boton onClick={() => { setForm({ nombre: '', email: '', activo: true, roles: [rolVacio()] }); setError(''); }}>+ Usuario</Boton>}>
+        Usuarios administradores
+      </Titulo>
+      <p className="mb-4 text-sm text-gray-500">Personas que entran con correo y contraseña. Los empleados de tienda se manejan en la sección Empleados.</p>
+
       <div className="space-y-3">
-        {usuarios.map((u) => (
-          <Tarjeta key={u.id} className="space-y-2">
-            <div className="flex items-start justify-between gap-3">
+        {admins.map((a) => {
+          const susRoles = filas.filter((f) => f.administrador_id === a.id);
+          return (
+            <Tarjeta key={a.id} className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="font-black">{u.nombre}</p>
-                <p className="truncate text-xs text-gray-400">{u.email}</p>
+                <p className="font-black">{a.nombre}</p>
+                <p className="truncate text-xs text-gray-400">{a.email}</p>
                 <div className="mt-1 flex flex-wrap gap-1">
-                  <Insignia>{NOMBRE_ROL[u.rol]}</Insignia>
-                  {u.empresa_id && <Insignia color="gray">{nombreEmpresa(u.empresa_id)}</Insignia>}
-                  {bodegasDe(u.id) && <Insignia color="gray">{bodegasDe(u.id)}</Insignia>}
-                  {!u.activo && <Insignia color="red">Inactivo</Insignia>}
+                  {susRoles.map((r, i) => <Insignia key={i}>{describir(r)}</Insignia>)}
+                  {!a.activo && <Insignia color="red">Inactivo</Insignia>}
                 </div>
               </div>
-              {u.id !== actor.id && (
+              {a.id !== miId && (
                 <div className="flex shrink-0 flex-col gap-2">
-                  <Boton variante="suave" className="px-3 py-2" onClick={() => abrirEdicion(u)}>Editar</Boton>
-                  <Boton variante="secundario" className="px-3 py-2 text-xs" onClick={() => resetear(u)}>Contraseña</Boton>
+                  <Boton variante="suave" className="px-3 py-2" onClick={() => { setForm({ id: a.id, nombre: a.nombre, email: a.email, activo: a.activo, roles: susRoles.map(({ rol, organizacion_id, tienda_id }) => ({ rol, organizacion_id, tienda_id })) }); setError(''); }}>
+                    Editar
+                  </Boton>
+                  <Boton variante="secundario" className="px-3 py-2 text-xs" onClick={() => resetear(a)}>Contraseña</Boton>
                 </div>
               )}
-            </div>
-          </Tarjeta>
-        ))}
+            </Tarjeta>
+          );
+        })}
       </div>
 
       {form && (
@@ -168,35 +145,37 @@ export default function UsuariosCliente({ actor }: { actor: Perfil }) {
           <Campo etiqueta="Correo">
             <Entrada type="email" value={form.email} disabled={!!form.id} onChange={(e) => setForm({ ...form, email: e.target.value })} />
           </Campo>
-          <Campo etiqueta="Rol">
-            <Selector
-              value={form.rol}
-              onChange={(e) => setForm({ ...form, rol: e.target.value as Rol, bodega_ids: [] })}
-            >
-              {rolesPermitidos
-                .filter((r) => !form.id || esRolEmpresa(r) === esRolEmpresa(form.rol))
-                .map((r) => <option key={r} value={r}>{NOMBRE_ROL[r]}</option>)}
-            </Selector>
-          </Campo>
-          {esRolEmpresa(form.rol) && actor.rol === 'ADMIN_CENTRO' && !form.id && (
-            <Campo etiqueta="Empresa">
-              <Selector value={form.empresa_id ?? ''} onChange={(e) => setForm({ ...form, empresa_id: e.target.value || null, bodega_ids: [] })}>
-                <option value="">Selecciona…</option>
-                {empresas.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
-              </Selector>
-            </Campo>
-          )}
-          <Campo etiqueta={form.rol === 'SUPERVISOR' ? 'Tiendas que supervisa' : 'Bodegas asignadas'}>
-            <div className="max-h-48 space-y-1 overflow-y-auto rounded-2xl bg-gray-50 p-3">
-              {bodegasDisponibles.length === 0 && <p className="text-xs text-gray-400">No hay bodegas para esta selección.</p>}
-              {bodegasDisponibles.map((b) => (
-                <label key={b.id} className="flex items-center gap-2 text-sm font-semibold">
-                  <input type="checkbox" checked={form.bodega_ids.includes(b.id)} onChange={() => alternarBodega(b.id)} />
-                  {b.codigo} · {b.nombre}
-                </label>
-              ))}
-            </div>
-          </Campo>
+
+          <div className="space-y-2">
+            <span className="text-xs font-bold uppercase tracking-wide text-gray-500">Roles</span>
+            {form.roles.map((r, i) => (
+              <div key={i} className="space-y-2 rounded-2xl bg-gray-50 p-3">
+                <div className="flex gap-2">
+                  <Selector value={r.rol} onChange={(e) => cambiarRol(i, { rol: e.target.value as Rol })}>
+                    {rolesDisponibles.map((x) => <option key={x} value={x}>{NOMBRE_ROL[x]}</option>)}
+                  </Selector>
+                  <button className="px-2 text-sm font-bold text-red-500" onClick={() => setForm({ ...form, roles: form.roles.filter((_, j) => j !== i) })}>✕</button>
+                </div>
+                <p className="text-[11px] text-gray-400">{DESCRIPCION_ROL[r.rol]}</p>
+                {r.rol !== 'SUPERADMIN' && (
+                  <Selector value={r.organizacion_id ?? ''} onChange={(e) => cambiarRol(i, { organizacion_id: e.target.value })}>
+                    {orgsAdministrables.map((o) => <option key={o.id} value={o.id}>{o.nombre}</option>)}
+                  </Selector>
+                )}
+                {REQUIERE_TIENDA.includes(r.rol) && (
+                  <Selector value={r.tienda_id ?? ''} onChange={(e) => cambiarRol(i, { tienda_id: e.target.value || null })}>
+                    <option value="">Selecciona tienda…</option>
+                    {tiendas.filter((t) => t.organizacion_id === r.organizacion_id).map((t) => <option key={t.id} value={t.id}>{t.codigo} · {t.nombre}</option>)}
+                  </Selector>
+                )}
+              </div>
+            ))}
+            {form.id !== miId && (
+              <Boton variante="suave" className="w-full" onClick={() => setForm({ ...form, roles: [...form.roles, rolVacio()] })}>+ Agregar rol</Boton>
+            )}
+            <p className="text-[11px] text-gray-400">Para un supervisor de varias tiendas, agrega un rol Supervisor por cada tienda.</p>
+          </div>
+
           {form.id && (
             <label className="flex items-center gap-2 text-sm font-bold">
               <input type="checkbox" checked={form.activo} onChange={(e) => setForm({ ...form, activo: e.target.checked })} />
@@ -204,27 +183,18 @@ export default function UsuariosCliente({ actor }: { actor: Perfil }) {
             </label>
           )}
           {error && <Aviso tipo="error">{error}</Aviso>}
-          <Boton className="w-full" onClick={guardar} disabled={cargando}>
-            {cargando ? 'Guardando…' : form.id ? 'Guardar cambios' : 'Crear usuario'}
-          </Boton>
+          <Boton className="w-full" onClick={guardar} disabled={cargando}>{cargando ? 'Guardando…' : 'Guardar'}</Boton>
         </Modal>
       )}
 
       {credencial && (
         <Modal titulo="Contraseña temporal" onCerrar={() => setCredencial(null)}>
-          <p className="text-sm text-gray-600">
-            Entrégale estos datos al usuario. Al entrar por primera vez deberá crear su propia contraseña. Esta contraseña no se volverá a mostrar.
-          </p>
+          <p className="text-sm text-gray-600">Entrégale estos datos. Al entrar deberá crear su propia contraseña. No se volverá a mostrar.</p>
           <div className="space-y-1 rounded-2xl bg-indigo-50 p-4 text-center">
             <p className="text-sm font-semibold text-indigo-700">{credencial.email}</p>
             <p className="select-all font-mono text-2xl font-black tracking-wider text-indigo-900">{credencial.password}</p>
           </div>
-          <Boton
-            className="w-full"
-            onClick={() => navigator.clipboard?.writeText(`Usuario: ${credencial.email}\nContraseña temporal: ${credencial.password}`)}
-          >
-            Copiar
-          </Boton>
+          <Boton className="w-full" onClick={() => navigator.clipboard?.writeText(`Usuario: ${credencial.email}\nContraseña temporal: ${credencial.password}`)}>Copiar</Boton>
         </Modal>
       )}
     </div>
