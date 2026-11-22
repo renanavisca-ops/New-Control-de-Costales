@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabaseNavegador } from '@/lib/supabase/client';
 import { Aviso, Boton, Entrada } from '@/components/ui';
@@ -10,6 +10,11 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [cargando, setCargando] = useState(false);
+
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('error') === 'enlace')
+      setError('El enlace de recuperación no es válido o ya venció. Solicita uno nuevo.');
+  }, []);
 
   const entrar = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,7 +47,7 @@ export default function LoginPage() {
         <Boton type="submit" disabled={cargando} className="w-full py-4">
           {cargando ? 'Entrando…' : 'Iniciar sesión'}
         </Boton>
-        <p className="text-center text-xs text-gray-400">¿Olvidaste tu contraseña? Pide a tu administrador que la restablezca.</p>
+        <a href="/recuperar" className="block text-center text-sm font-bold text-indigo-600">¿Olvidaste tu contraseña?</a>
         <a href="/dispositivo/activar" className="block text-center text-xs font-bold text-indigo-600">¿Es el celular de una tienda? Actívalo aquí</a>
       </form>
     </main>
