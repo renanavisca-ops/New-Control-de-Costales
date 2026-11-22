@@ -260,8 +260,8 @@ eventos             (bitácora automática: quién, qué, cuándo, desde qué di
 
 | Fase | Contenido |
 |---|---|
-| **0. Preparación** | ✅ Proyecto Supabase creado. ⏳ Borrar "Agente de Responsabilidades". Configurar variables en Vercel |
-| **1. Base** | Next.js en este repo, esquema SQL con RLS multiempresa, login, roles, tiendas, usuarios y categorías |
+| **0. Preparación** | ✅ Proyecto Supabase creado. ✅ "Agente de Responsabilidades" borrado |
+| **1. Base** | ✅ Next.js en este repo, esquema SQL con RLS (centro → empresas → bodegas), login, cambio de contraseña temporal, roles, empresas, bodegas, usuarios y categorías. Falta crear el primer administrador |
 | **2. Tienda (núcleo)** | Escáner con los 3 métodos, inventario inicial, recibir, abrir y stock |
 | **3. Offline** | Caché local, cola de sincronización automática y manejo de conflictos |
 | **4. Bodega** | Despachos (Excel y escaneo), faltantes y sobrantes, traslados |
@@ -293,4 +293,4 @@ La organización está en el plan **Pro** ($25 al mes), que incluye $10 de créd
 
 ## 14. Preguntas pendientes
 1. Cuando esté listo, enviar un **Excel de ejemplo con el reporte nuevo** (con las categorías completas) para ajustar el lector.
-2. Los usuarios del centro de distribución (rol BODEGA), ¿también deben poder **ver los reportes de empaque contra producción** de las empresas que abastecen?
+2. ✅ Resuelto: **solo los administradores** (ADMIN_CENTRO y ADMIN_EMPRESA) ven las diferencias de empaque contra producción.
