@@ -9,7 +9,8 @@
 | Elemento | Estado |
 |---|---|
 | Supabase `control-de-costales` | ✅ **Creado** en us-east-2 (ref `zqewhthgmkifspvnlith`). Está vacío |
-| Supabase "Agente de Responsabilidades" | ⏳ **Hay que borrarlo a mano** desde el panel de Supabase (Project Settings → General → Delete project). La herramienta que tengo no puede borrar proyectos |
+| Supabase "Agente de Responsabilidades" | ✅ Borrado por el dueño |
+| Plan de Supabase | ⚠️ La organización está en el plan **Pro**. Cada proyecto activo consume capacidad de cómputo (unos $10 al mes cada uno; el plan incluye $10 de crédito). Ver la sección 13 |
 | Vercel `new-control-de-costales` | Se reutiliza, con la misma URL |
 | App actual | Funcionó **solo en modo simulado**: los datos de las capturas viven únicamente en el navegador donde se probó. No hay datos reales que migrar |
 
@@ -61,9 +62,36 @@ Piezas 80 | Libras 38.30 | Conf … | ROPA B | Código BA | 21/09/2026 | EMP0221
 | **B. Lector de etiqueta con la cámara (OCR)** | Al escanear, la app toma una foto de la etiqueta y lee "Piezas 80" y "Libras 38.30". El usuario confirma | Media | ~85–95%; falla con etiquetas arrugadas o manchadas como la de la foto |
 | **C. Cambiar la etiqueta a código QR** | La impresora de bodega imprime un QR con `EMP02216904|ROPA B|80|38.30`. Un solo escaneo trae todo | Baja si controlan la impresora | 100% |
 
-**Recomendación:** empezar con **A**. Es lo que además permite saber qué costales faltaron en cada despacho. Si en el futuro pueden cambiar la etiqueta, sumar **C**. **B** sería un respaldo opcional para costales que lleguen sin despacho cargado.
+**Decisión: opción A.** La etiqueta no se puede cambiar, pero la bodega puede generar el Excel del traslado.
 
-> **Pregunta:** ¿la bodega tiene un sistema del que se pueda exportar el despacho a Excel? Tu AppSheet anterior tenía columnas de un ERP (CODREF, NUMREF, BODEGA, PIEZAS…). ¿Quién imprime las etiquetas y se puede cambiar el formato?
+### Formato real del Excel de traslado (ejemplo: `traslado_de_ropa_17_11_2026_tienda_5.xls`)
+```
+PACA TU AMIGO, S.A.
+TIPO DOCUMENTO: T0111 TRASLADO CENTRO DIST-TIENDA 5 EMPQ
+NUMERO:        359
+REFERENCIA:  APERT 27 NOV MR 164
+FECHA 17/11/2026
+BODEGA DE ENTRADA: B105 SALIDA: B090
+COSTAL #     | PIEZAS | PRECIO | PESO
+CLACIFICACION B
+EMP02220372  | 15     | 45     | 11.7
+…            (subtotal por clasificación)
+CLACIFICACION C
+EMP02218814  | 20     | 100    | 23.4
+TOTAL 210 piezas | 750 | 199.2 lb  —  Total Costales: 13
+```
+
+La app va a **leer este reporte tal como sale del sistema, sin que nadie lo modifique**:
+- De la cabecera toma: **número de traslado**, referencia, fecha y **bodega de entrada** (B105). Esta última se asocia a la tienda: cada tienda tendrá su código de bodega.
+- De cada fila `EMP02…` toma: código, **piezas, precio y peso**, y la **clasificación** (B o C) según la sección donde aparece.
+- Valida contra los totales del reporte (13 costales y 210 piezas) para asegurarse de que se leyó completo.
+
+**Flujo:**
+1. La bodega sube el Excel y el traslado queda **EN TRÁNSITO**, con sus 13 costales.
+2. En la tienda se escanea cada costal y se marca ✔ como llegado. Las piezas y el peso ya vienen del Excel.
+3. Al cerrar la recepción, la app muestra los **costales que no llegaron** (posible pérdida en el camino) y los **que llegaron sin estar en el traslado**.
+4. Al abrir el costal se cuentan las piezas, y la **diferencia contra el Excel** queda registrada.
+5. Como el Excel trae **precio**, los faltantes se pueden mostrar también **en quetzales**.
 
 ---
 
@@ -80,7 +108,7 @@ Hoy el saldo vuelve a bodega sin identificación. Propuesta: **que la app le asi
 
 Así el saldo tiene el mismo control que un costal: quién lo mandó, cuánto y si llegó completo.
 
-> **Pregunta:** ¿el saldo de varias categorías va mezclado en un mismo saco, o un saco por categoría?
+**Respuesta del dueño:** el saldo va **mezclado**; un saco puede llevar A, B, C, etc. Por eso cada retorno tiene **varias líneas** (clasificación + piezas). Como las tiendas no tienen balanza, **lo principal son las piezas**; el peso lo registra la bodega al recibirlo.
 
 ---
 
@@ -221,10 +249,22 @@ eventos             (bitácora automática: quién, qué, cuándo, desde qué di
 
 ---
 
-## 12. Preguntas pendientes
-1. ¿La bodega puede **exportar el despacho a Excel** desde su sistema? ¿Quién imprime las etiquetas y se puede cambiar el formato (para un QR)?
-2. El saldo de retorno, ¿va **mezclado o separado por categoría**?
-3. ¿Las tiendas tienen **balanza** para comparar libras al recibir, o las libras se comparan solo en la bodega?
-4. ¿Te parece bien la **tabla de permisos** de la sección 4, y agregar el rol BODEGA?
-5. ¿Un supervisor cubre **varias tiendas**?
-6. Tolerancia de diferencia: ¿desde cuántas piezas o libras de diferencia se marca **alerta**?
+## 12. Decisiones tomadas
+- Despachos: **Excel del sistema de bodega**, subido tal cual. La tienda escanea para confirmar la llegada.
+- Etiqueta: no se cambia. El escaneo solo lee el código; piezas y peso salen del Excel.
+- Saldo: mezclado; un retorno tiene varias líneas por clasificación.
+- Tiendas **sin balanza**: las piezas mandan; el peso es solo informativo (viene del Excel).
+- Un supervisor cubre **varias tiendas**.
+- **Alerta desde 5 piezas** de diferencia por costal. Además, **todas** las diferencias (aunque sean de 1 pieza) se acumulan en reportes por clasificación, operador, tienda y traslado, para ver tendencias.
+- Permisos: se implementan los de la sección 4 como punto de partida, y el admin podrá ajustarlos más adelante.
+
+## 13. Costo de Supabase
+La organización está en el plan **Pro** ($25 al mes), que incluye $10 de crédito de cómputo, o sea, alrededor de 1 proyecto pequeño. Cada proyecto activo adicional cuesta unos **$10 al mes**. Un proyecto pausado no consumía cómputo, así que borrar "Agente de Responsabilidades" no redujo el costo, y crear `control-de-costales` lo sube unos $10 al mes.
+
+Alternativa sin costo extra: poner Costales **dentro del proyecto de Asistencia biométrica**, en un esquema propio (`costales`), y borrar `control-de-costales`. *(Decisión del dueño.)*
+
+## 14. Preguntas pendientes
+1. ¿Qué es una **"producción"**? ¿Es un traslado, un lote de clasificación o la persona de bodega que armó el costal?
+2. En el Excel solo aparece la **clasificación (B, C)**, no el tipo (ROPA, ZAPATO…). ¿Hace falta el tipo, o basta la clasificación?
+3. ¿Cuál es el **código de bodega** de cada tienda (B105 = Tienda 5)?
+4. Costo: ¿proyecto propio (unos $10 al mes) o dentro de Asistencia biométrica ($0)?
