@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabaseNavegador } from '@/lib/supabase/client';
 import { cargarOrgsPropias } from '@/lib/datos';
-import { tieneRol, type AsignacionRol, type Organizacion, type Tienda } from '@/lib/tipos';
+import { type AsignacionRol, type Organizacion, type Tienda } from '@/lib/tipos';
 import { SelectorOrg, useOrgActiva } from '@/components/selector-org';
 import { Entrada, Selector, Tarjeta, Titulo } from '@/components/ui';
 
@@ -34,7 +34,7 @@ export default function ProduccionCliente({ roles }: { roles: AsignacionRol[] })
   const [filas, setFilas] = useState<Fila[]>([]);
 
   useEffect(() => {
-    cargarOrgsPropias(roles).then((o) => setOrgs(o.filter((x) => tieneRol(roles, x.id, ['ADMIN_ORG', 'AUDITOR']))));
+    cargarOrgsPropias(roles).then(setOrgs);
   }, [roles]);
 
   const cargar = useCallback(async () => {

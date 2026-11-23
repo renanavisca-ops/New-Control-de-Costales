@@ -40,7 +40,7 @@ La URL y la clave pública de Supabase ya vienen por defecto en `src/lib/config.
 
 | Rol | Alcance |
 |---|---|
-| SUPERADMIN | Toda la plataforma: organizaciones y abastecimiento entre organizaciones |
+| SUPERADMIN | Área "Mi plataforma": organizaciones, abastecimiento entre organizaciones, primeros administradores y auditoría. Dentro de una organización solo ve con acceso de soporte (solo lectura) otorgado por ella |
 | ADMIN_ORG | Su organización: tiendas, productos, empleados, celulares, usuarios y diferencias |
 | SUPERVISOR | Tiendas asignadas: inventarios completos y selectivos |
 | BODEGA | Centro de distribución o bodega asignada: traslados y retornos |
