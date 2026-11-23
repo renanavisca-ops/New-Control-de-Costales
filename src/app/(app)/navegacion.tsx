@@ -22,14 +22,14 @@ export default function Navegacion({ roles }: { roles: AsignacionRol[] }) {
   const ruta = usePathname();
   const visibles = ITEMS.filter((i) => (i.roles === 'SUPER' ? esSuperadmin(roles) : tieneAlgunRol(roles, i.roles)));
   return (
-    <nav className="flex gap-2 overflow-x-auto px-5 pb-3">
+    <nav className="flex flex-wrap gap-2 px-5 pb-3">
       {visibles.map((i) => {
         const activo = i.href === '/' ? ruta === '/' : ruta.startsWith(i.href);
         return (
           <Link
             key={i.href}
             href={i.href}
-            className={`shrink-0 rounded-full px-4 py-2 text-xs font-black uppercase tracking-wide transition ${
+            className={`rounded-full px-3 py-1.5 text-[11px] font-black uppercase tracking-wide transition sm:px-4 sm:py-2 sm:text-xs ${
               activo ? 'bg-indigo-600 text-white shadow' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
             }`}
           >

@@ -8,11 +8,12 @@ import { Aviso, Boton, Campo, Entrada, Insignia, Modal, Tarjeta, Titulo } from '
 
 type Form = { id?: string; codigo: string; nombre: string; direccion: string; es_central: boolean; activa: boolean };
 
-export default function TiendasCliente({ roles }: { roles: AsignacionRol[] }) {
+export default function TiendasCliente({ roles, orgFijaId }: { roles: AsignacionRol[]; orgFijaId?: string }) {
   const sb = supabaseNavegador();
   const [orgs, setOrgs] = useState<Organizacion[]>([]);
   const [todasOrgs, setTodasOrgs] = useState<Organizacion[]>([]);
-  const [orgId, setOrgId] = useOrgActiva(orgs);
+  const [orgActiva, setOrgId] = useOrgActiva(orgs);
+  const orgId = orgFijaId ?? orgActiva;
   const [tiendas, setTiendas] = useState<Tienda[]>([]);
   const [abast, setAbast] = useState<{ centro_id: string; organizacion_id: string }[]>([]);
   const [form, setForm] = useState<Form | null>(null);
@@ -69,11 +70,11 @@ export default function TiendasCliente({ roles }: { roles: AsignacionRol[] }) {
   return (
     <div>
       <Titulo
-        accion={editable && <Boton onClick={() => { setForm({ codigo: '', nombre: '', direccion: '', es_central: false, activa: true }); setError(''); }}>+ Tienda</Boton>}
+        accion={editable && <Boton onClick={() => { setForm({ codigo: '', nombre: '', direccion: '', es_central: false, activa: true }); setError(''); }}>+ Sucursal</Boton>}
       >
-        Tiendas
+        {orgFijaId ? 'Sucursales' : 'Tiendas'}
       </Titulo>
-      <SelectorOrg orgs={orgs} valor={orgId} onCambio={setOrgId} />
+      {!orgFijaId && <SelectorOrg orgs={orgs} valor={orgId} onCambio={setOrgId} />}
       <p className="mb-4 text-sm text-gray-500">
         El código debe coincidir con la &quot;BODEGA DE ENTRADA&quot; del Excel de traslado (ej. B105). Marca como centro de distribución la bodega que despacha.
       </p>
@@ -129,7 +130,7 @@ export default function TiendasCliente({ roles }: { roles: AsignacionRol[] }) {
       </div>
 
       {form && (
-        <Modal titulo={form.id ? 'Editar tienda' : 'Nueva tienda'} onCerrar={() => setForm(null)}>
+        <Modal titulo={form.id ? 'Editar sucursal' : 'Nueva sucursal'} onCerrar={() => setForm(null)}>
           <Campo etiqueta="Código">
             <Entrada value={form.codigo} onChange={(e) => setForm({ ...form, codigo: e.target.value })} placeholder="B105" />
           </Campo>
