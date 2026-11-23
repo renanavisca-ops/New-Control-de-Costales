@@ -69,7 +69,7 @@ export default function TiendaCliente({
   }, [sinc.datos]);
 
   return (
-    <div className="mx-auto min-h-screen max-w-lg p-5">
+    <div className="mx-auto min-h-screen w-full max-w-3xl p-4 sm:p-6">
       <header className="mb-4 flex items-start justify-between gap-3">
         <div>
           <p className="text-lg font-black">
@@ -96,7 +96,7 @@ export default function TiendaCliente({
 
       {vista === 'INICIO' && (
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
             <Mosaico icono="✂️" titulo="Producción" detalle="Iniciar y finalizar costales" principal onClick={() => abrir('PRODUCCION')} />
             <Mosaico icono="📥" titulo="Recibir" detalle="Costales que llegan" onClick={() => abrir('RECIBIR')} />
             <Mosaico icono="📋" titulo="Inventario inicial" detalle="Costales que ya estaban" onClick={() => abrir('INICIAL')} />
@@ -204,7 +204,7 @@ function Mosaico({ icono, titulo, detalle, onClick, principal }: { icono: string
   return (
     <button
       onClick={onClick}
-      className={`rounded-[28px] p-5 text-left shadow-sm transition active:scale-[0.98] ${principal ? 'col-span-2 bg-indigo-600 text-white shadow-xl' : 'bg-white'}`}
+      className={`rounded-[28px] p-5 text-left shadow-sm transition active:scale-[0.98] ${principal ? 'col-span-2 bg-indigo-600 text-white shadow-xl md:col-span-3' : 'bg-white'}`}
     >
       <p className="text-2xl">{icono}</p>
       <p className="mt-2 text-lg font-black">{titulo}</p>

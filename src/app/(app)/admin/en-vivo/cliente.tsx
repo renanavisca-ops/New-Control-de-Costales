@@ -47,7 +47,7 @@ export default function EnVivoCliente({ roles }: { roles: AsignacionRol[] }) {
       <p className="text-sm text-gray-500">
         Lo que se está produciendo ahora en las tiendas. Los empleados trabajan desde el celular de su tienda (sección Celulares). Se actualiza cada 20 segundos · {actualizado}
       </p>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
         {hoy.map((t) => {
           const lista = enVivo.filter((e) => e.tienda_id === t.tienda_id);
           return (

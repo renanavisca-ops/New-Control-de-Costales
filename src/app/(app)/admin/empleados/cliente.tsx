@@ -101,7 +101,7 @@ export default function EmpleadosCliente({ roles }: { roles: AsignacionRol[] }) 
         <Entrada placeholder="Buscar por código o nombre" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} />
       </div>
 
-      <div className="space-y-3">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
         {filtrados.length === 0 && <p className="text-sm text-gray-400">Sin empleados.</p>}
         {filtrados.map((e) => (
           <Tarjeta key={e.id} className="flex items-center justify-between gap-3">

@@ -106,7 +106,7 @@ export default function CategoriasCliente({ roles }: { roles: AsignacionRol[] })
         Lista de productos (categorías) de la organización. La usan todas sus tiendas y las organizaciones que abastece su centro de distribución. El Excel necesita una columna &quot;producto&quot; o &quot;categoría&quot;.
       </p>
       {resumen && <div className="mb-4"><Aviso tipo="info">{resumen}</Aviso></div>}
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
         {categorias.map((c) => (
           <Tarjeta key={c.id} className="flex items-center justify-between py-3">
             <div className="flex items-center gap-2">

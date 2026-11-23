@@ -85,7 +85,7 @@ export default function CelularesCliente({ roles }: { roles: AsignacionRol[] }) 
         Cada celular queda fijado a una tienda. Se activa abriendo <span className="font-bold">{urlActivacion}</span> en el celular e ingresando el código de 8 caracteres (vence en 24 horas).
       </p>
 
-      <div className="space-y-5">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         {tiendas.map((t) => {
           const lista = dispositivos.filter((d) => d.tienda_id === t.id);
           if (!lista.length) return null;

@@ -79,7 +79,7 @@ export default function TiendasCliente({ roles, orgFijaId }: { roles: Asignacion
         El código debe coincidir con la &quot;BODEGA DE ENTRADA&quot; del Excel de traslado (ej. B105). Marca como centro de distribución la bodega que despacha.
       </p>
 
-      <div className="space-y-3">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         {tiendas.length === 0 && <p className="text-sm text-gray-400">Sin tiendas todavía.</p>}
         {tiendas.map((t) => {
           const clientes = abast.filter((a) => a.centro_id === t.id).map((a) => a.organizacion_id);
