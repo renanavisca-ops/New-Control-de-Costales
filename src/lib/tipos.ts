@@ -53,6 +53,7 @@ export interface Tienda {
   codigo: string;
   nombre: string;
   direccion: string | null;
+  bodega: string | null;
   es_central: boolean;
   activa: boolean;
 }
@@ -61,6 +62,7 @@ export interface Categoria {
   id: string;
   organizacion_id: string;
   nombre: string;
+  piezas_estandar: number | null;
   activa: boolean;
 }
 

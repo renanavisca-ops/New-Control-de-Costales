@@ -6,7 +6,7 @@ import { puedeAdministrarOrg, type AsignacionRol, type Organizacion, type Tienda
 import { SelectorOrg, useOrgActiva } from '@/components/selector-org';
 import { Aviso, Boton, Campo, Entrada, Insignia, Modal, Tarjeta, Titulo } from '@/components/ui';
 
-type Form = { id?: string; codigo: string; nombre: string; direccion: string; es_central: boolean; activa: boolean };
+type Form = { id?: string; codigo: string; bodega: string; nombre: string; direccion: string; es_central: boolean; activa: boolean };
 
 export default function TiendasCliente({ roles, orgFijaId }: { roles: AsignacionRol[]; orgFijaId?: string }) {
   const sb = supabaseNavegador();
@@ -44,6 +44,7 @@ export default function TiendasCliente({ roles, orgFijaId }: { roles: Asignacion
     setError('');
     const fila = {
       codigo: form.codigo.trim().toUpperCase(),
+      bodega: form.bodega.trim().toUpperCase() || null,
       nombre: form.nombre.trim(),
       direccion: form.direccion.trim() || null,
       es_central: form.es_central,
@@ -53,7 +54,7 @@ export default function TiendasCliente({ roles, orgFijaId }: { roles: Asignacion
     const { error } = form.id
       ? await sb.from('tiendas').update(fila).eq('id', form.id)
       : await sb.from('tiendas').insert({ ...fila, organizacion_id: orgId });
-    if (error) return setError(traducirError(error.message));
+    if (error) return setError(error.message.includes('tiendas_bodega') ? 'Otra sucursal ya tiene esa bodega.' : traducirError(error.message));
     setForm(null);
     cargar();
   };
@@ -62,13 +63,13 @@ export default function TiendasCliente({ roles, orgFijaId }: { roles: Asignacion
   return (
     <div>
       <Titulo
-        accion={editable && <Boton onClick={() => { setForm({ codigo: '', nombre: '', direccion: '', es_central: false, activa: true }); setError(''); }}>+ Sucursal</Boton>}
+        accion={editable && <Boton onClick={() => { setForm({ codigo: '', bodega: '', nombre: '', direccion: '', es_central: false, activa: true }); setError(''); }}>+ Sucursal</Boton>}
       >
         Sucursales
       </Titulo>
       {!orgFijaId && <SelectorOrg orgs={orgs} valor={orgId} onCambio={setOrgId} />}
       <p className="mb-4 text-sm text-gray-500">
-        El código debe coincidir con la &quot;BODEGA DE ENTRADA&quot; del Excel de traslado (ej. B105). Marca como centro de distribución la bodega que despacha.
+        La &quot;bodega en el sistema&quot; es la que aparece en el Excel de traslado: BODEGA DE ENTRADA para las tiendas (ej. B102) y SALIDA para el centro de distribución (ej. B090). Así cada traslado llega a la sucursal correcta.
       </p>
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -82,13 +83,14 @@ export default function TiendasCliente({ roles, orgFijaId }: { roles: Asignacion
                   <div className="flex flex-wrap items-center gap-2">
                     <Insignia>{t.codigo}</Insignia>
                     <p className="font-black">{t.nombre}</p>
+                    {t.bodega ? <Insignia color="gray">Bodega {t.bodega}</Insignia> : <Insignia color="red">Sin bodega</Insignia>}
                     {t.es_central && <Insignia color="green">Centro de distribución</Insignia>}
                     {!t.activa && <Insignia color="gray">Inactiva</Insignia>}
                   </div>
                   <p className="mt-1 text-xs text-gray-400">{t.direccion || 'Sin dirección'}</p>
                 </div>
                 {editable && (
-                  <Boton variante="suave" onClick={() => { setForm({ id: t.id, codigo: t.codigo, nombre: t.nombre, direccion: t.direccion || '', es_central: t.es_central, activa: t.activa }); setError(''); }}>
+                  <Boton variante="suave" onClick={() => { setForm({ id: t.id, codigo: t.codigo, bodega: t.bodega || '', nombre: t.nombre, direccion: t.direccion || '', es_central: t.es_central, activa: t.activa }); setError(''); }}>
                     Editar
                   </Boton>
                 )}
@@ -109,7 +111,10 @@ export default function TiendasCliente({ roles, orgFijaId }: { roles: Asignacion
       {form && (
         <Modal titulo={form.id ? 'Editar sucursal' : 'Nueva sucursal'} onCerrar={() => setForm(null)}>
           <Campo etiqueta="Código">
-            <Entrada value={form.codigo} onChange={(e) => setForm({ ...form, codigo: e.target.value })} placeholder="B105" />
+            <Entrada value={form.codigo} onChange={(e) => setForm({ ...form, codigo: e.target.value })} placeholder="T02" />
+          </Campo>
+          <Campo etiqueta="Bodega en el sistema (Excel de traslado)">
+            <Entrada value={form.bodega} onChange={(e) => setForm({ ...form, bodega: e.target.value })} placeholder="B102" />
           </Campo>
           <Campo etiqueta="Nombre">
             <Entrada value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} placeholder="Tienda 5" />
