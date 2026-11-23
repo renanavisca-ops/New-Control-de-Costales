@@ -4,6 +4,13 @@
   color-scheme: light;
 }
 
+/* Tipografía fluida: el tamaño base crece con el ancho de la pantalla.
+   Como todo el diseño usa rem, textos, botones y espacios escalan juntos.
+   Celular ≈ 15px · laptop ≈ 16-17px · monitor grande ≈ 19-20px */
+html {
+  font-size: clamp(15px, 0.42vw + 10px, 20px);
+}
+
 body {
   background: #f6f7fb;
   color: #111827;

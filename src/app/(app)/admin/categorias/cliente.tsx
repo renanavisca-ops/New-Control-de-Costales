@@ -5,7 +5,7 @@ import { cargarOrgsPropias, traducirError } from '@/lib/datos';
 import { leerFilasExcel, normalizarEncabezado } from '@/lib/excel';
 import { puedeAdministrarOrg, type AsignacionRol, type Categoria, type Organizacion } from '@/lib/tipos';
 import { SelectorOrg, useOrgActiva } from '@/components/selector-org';
-import { Aviso, Boton, Campo, Entrada, Insignia, Modal, Tarjeta, Titulo } from '@/components/ui';
+import { Aviso, Boton, Campo, Entrada, Insignia, Modal, Titulo } from '@/components/ui';
 
 export default function CategoriasCliente({ roles }: { roles: AsignacionRol[] }) {
   const sb = supabaseNavegador();
@@ -16,6 +16,8 @@ export default function CategoriasCliente({ roles }: { roles: AsignacionRol[] })
   const [error, setError] = useState('');
   const [resumen, setResumen] = useState('');
   const [importando, setImportando] = useState(false);
+  const [busqueda, setBusqueda] = useState('');
+  const [verInactivos, setVerInactivos] = useState(false);
   const archivoRef = useRef<HTMLInputElement>(null);
   const editable = puedeAdministrarOrg(roles, orgId);
 
@@ -106,20 +108,56 @@ export default function CategoriasCliente({ roles }: { roles: AsignacionRol[] })
         Lista de productos (categorías) de la organización. La usan todas sus tiendas y las organizaciones que abastece su centro de distribución. El Excel necesita una columna &quot;producto&quot; o &quot;categoría&quot;.
       </p>
       {resumen && <div className="mb-4"><Aviso tipo="info">{resumen}</Aviso></div>}
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-        {categorias.map((c) => (
-          <Tarjeta key={c.id} className="flex items-center justify-between py-3">
-            <div className="flex items-center gap-2">
-              <p className="font-black">{c.nombre}</p>
-              {!c.activa && <Insignia color="gray">Inactivo</Insignia>}
-            </div>
-            {editable && (
-              <Boton variante="suave" className="px-3 py-2" onClick={() => { setForm({ id: c.id, nombre: c.nombre, activa: c.activa }); setError(''); }}>
-                Editar
-              </Boton>
+
+      <div className="mb-3 flex flex-wrap items-center gap-3">
+        <div className="w-full max-w-sm">
+          <Entrada placeholder="Buscar producto…" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} />
+        </div>
+        <label className="flex items-center gap-2 text-sm font-bold text-gray-600">
+          <input type="checkbox" checked={verInactivos} onChange={(e) => setVerInactivos(e.target.checked)} />
+          Mostrar inactivos
+        </label>
+        <span className="ml-auto text-sm font-bold text-gray-400">
+          {categorias.filter((c) => c.activa).length} activos · {categorias.length} en total
+        </span>
+      </div>
+
+      <div className="overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-sm">
+        <table className="w-full text-left">
+          <thead className="bg-gray-50 text-xs font-black uppercase tracking-wide text-gray-500">
+            <tr>
+              <th className="px-5 py-3">Producto</th>
+              <th className="px-5 py-3">Estado</th>
+              {editable && <th className="px-5 py-3 text-right">Acciones</th>}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {categorias
+              .filter((c) => (verInactivos || c.activa) && c.nombre.toLowerCase().includes(busqueda.toLowerCase()))
+              .map((c) => (
+                <tr key={c.id} className="hover:bg-gray-50">
+                  <td className="px-5 py-3 font-black">{c.nombre}</td>
+                  <td className="px-5 py-3">
+                    <Insignia color={c.activa ? 'green' : 'gray'}>{c.activa ? 'Activo' : 'Inactivo'}</Insignia>
+                  </td>
+                  {editable && (
+                    <td className="px-5 py-2 text-right">
+                      <Boton variante="suave" className="px-3 py-1.5" onClick={() => { setForm({ id: c.id, nombre: c.nombre, activa: c.activa }); setError(''); }}>
+                        Editar
+                      </Boton>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            {categorias.length === 0 && (
+              <tr>
+                <td colSpan={3} className="px-5 py-8 text-center text-sm text-gray-400">
+                  Sin productos. Agrégalos uno por uno o con &quot;Cargar Excel&quot;.
+                </td>
+              </tr>
             )}
-          </Tarjeta>
-        ))}
+          </tbody>
+        </table>
       </div>
 
       {form && (
