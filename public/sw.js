@@ -1,28 +1,63 @@
+// Service Worker de Control de Costales: permite abrir la pantalla de la tienda sin internet.
+const VERSION = 'cc-v1';
+const ESTATICOS = `${VERSION}-estaticos`;
+const PAGINAS = `${VERSION}-paginas`;
 
-const CACHE_NAME = 'costalcontrol-v1';
-const ASSETS_TO_CACHE = [
-  './',
-  'index.html',
-  'https://cdn.tailwindcss.com'
-];
+self.addEventListener('install', () => self.skipWaiting());
 
-self.addEventListener('install', (event) => {
+self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS_TO_CACHE);
-    })
+    caches
+      .keys()
+      .then((claves) => Promise.all(claves.filter((c) => !c.startsWith(VERSION)).map((c) => caches.delete(c))))
+      .then(() => self.clients.claim()),
   );
 });
 
 self.addEventListener('fetch', (event) => {
-  // Ignorar peticiones a Apps Script para evitar cachear respuestas dinámicas
-  if (event.request.url.includes('script.google.com')) {
-    return fetch(event.request);
+  const req = event.request;
+  if (req.method !== 'GET') return;
+  const url = new URL(req.url);
+  if (url.origin !== self.location.origin) return; // Supabase y otros servicios van directo a la red
+
+  // Archivos de la app (llevan hash en el nombre): primero caché
+  if (url.pathname.startsWith('/_next/static/') || url.pathname === '/icon.svg') {
+    event.respondWith(
+      caches.match(req).then(
+        (hit) =>
+          hit ||
+          fetch(req).then((res) => {
+            if (res.ok) {
+              const copia = res.clone();
+              caches.open(ESTATICOS).then((c) => c.put(req, copia));
+            }
+            return res;
+          }),
+      ),
+    );
+    return;
   }
 
-  event.respondWith(
-    caches.match(event.request).then((response) => {
-      return response || fetch(event.request);
-    })
-  );
+  // Pantalla del celular de tienda: primero red, si no hay internet se usa la última versión guardada
+  if (req.mode === 'navigate' && url.pathname.startsWith('/tienda')) {
+    event.respondWith(
+      fetch(req)
+        .then((res) => {
+          if (res.ok && !res.redirected) {
+            const copia = res.clone();
+            caches.open(PAGINAS).then((c) => c.put('/tienda', copia));
+          }
+          return res;
+        })
+        .catch(() =>
+          caches.match('/tienda').then(
+            (hit) =>
+              hit ||
+              new Response('<h1 style="font-family:sans-serif;padding:24px">Sin conexión. Abre la app con internet al menos una vez.</h1>', {
+                headers: { 'Content-Type': 'text/html; charset=utf-8' },
+              }),
+          ),
+        ),
+    );
+  }
 });

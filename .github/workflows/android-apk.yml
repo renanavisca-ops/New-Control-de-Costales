@@ -1,0 +1,41 @@
+name: APK Android (tienda)
+# Igual que en Asistencia biométrica: compila un APK de prueba (debug).
+# Además lo guarda en la rama "apk-builds" para poder entregarlo como archivo.
+on:
+  push:
+    branches: [main, 'claude/**']
+    paths: ['android/**', 'capacitor.config.ts', 'capacitor-www/**', 'package.json', '.github/workflows/android-apk.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  android-apk:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '21' }
+      - run: npm ci
+      - name: APK de prueba (debug)
+        run: npx cap sync android && cd android && chmod +x gradlew && ./gradlew assembleDebug --no-daemon
+      - name: Nombre con versión
+        run: |
+          VERSION=$(grep -oP 'versionName "\K[^"]+' android/app/build.gradle)
+          mkdir -p salida
+          cp android/app/build/outputs/apk/debug/app-debug.apk "salida/costales-tienda-${VERSION}-prueba.apk"
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: costales-tienda-${{ env.VERSION }}-prueba-apk
+          path: salida/*.apk
+          retention-days: 14
+      - name: Guardar el APK en la rama apk-builds
+        run: |
+          cd salida
+          git init -q -b apk-builds
+          git add .
+          git -c user.name="github-actions" -c user.email="github-actions@users.noreply.github.com" \
+            commit -qm "APK ${VERSION} (build ${{ github.run_number }}, ${GITHUB_SHA::7})"
+          git push -fq "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" apk-builds
