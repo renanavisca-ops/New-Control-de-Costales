@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabaseNavegador } from '@/lib/supabase/client';
 import { cargarOrgsPropias, traducirError } from '@/lib/datos';
-import { esSuperadmin, puedeAdministrarOrg, type AsignacionRol, type Organizacion, type Tienda } from '@/lib/tipos';
+import { puedeAdministrarOrg, type AsignacionRol, type Organizacion, type Tienda } from '@/lib/tipos';
 import { SelectorOrg, useOrgActiva } from '@/components/selector-org';
 import { Aviso, Boton, Campo, Entrada, Insignia, Modal, Tarjeta, Titulo } from '@/components/ui';
 
@@ -19,7 +19,6 @@ export default function TiendasCliente({ roles, orgFijaId }: { roles: Asignacion
   const [form, setForm] = useState<Form | null>(null);
   const [error, setError] = useState('');
   const editable = puedeAdministrarOrg(roles, orgId);
-  const superadmin = esSuperadmin(roles);
 
   useEffect(() => {
     cargarOrgsPropias(roles).then(setOrgs);
@@ -59,20 +58,13 @@ export default function TiendasCliente({ roles, orgFijaId }: { roles: Asignacion
     cargar();
   };
 
-  const alternarAbastecimiento = async (centroId: string, clienteId: string, activo: boolean) => {
-    const { error } = activo
-      ? await sb.from('abastecimientos').delete().eq('centro_id', centroId).eq('organizacion_id', clienteId)
-      : await sb.from('abastecimientos').insert({ centro_id: centroId, organizacion_id: clienteId });
-    if (error) alert(traducirError(error.message));
-    cargar();
-  };
 
   return (
     <div>
       <Titulo
         accion={editable && <Boton onClick={() => { setForm({ codigo: '', nombre: '', direccion: '', es_central: false, activa: true }); setError(''); }}>+ Sucursal</Boton>}
       >
-        {orgFijaId ? 'Sucursales' : 'Tiendas'}
+        Sucursales
       </Titulo>
       {!orgFijaId && <SelectorOrg orgs={orgs} valor={orgId} onCambio={setOrgId} />}
       <p className="mb-4 text-sm text-gray-500">
@@ -104,24 +96,9 @@ export default function TiendasCliente({ roles, orgFijaId }: { roles: Asignacion
               {t.es_central && (
                 <div className="rounded-2xl bg-gray-50 p-3">
                   <p className="mb-2 text-xs font-black uppercase tracking-wide text-gray-500">También abastece a</p>
-                  {superadmin ? (
-                    <div className="space-y-1">
-                      {todasOrgs.filter((o) => o.id !== t.organizacion_id).map((o) => {
-                        const activo = clientes.includes(o.id);
-                        return (
-                          <label key={o.id} className="flex items-center gap-2 text-sm font-semibold">
-                            <input type="checkbox" checked={activo} onChange={() => alternarAbastecimiento(t.id, o.id, activo)} />
-                            {o.nombre}
-                          </label>
-                        );
-                      })}
-                      {todasOrgs.length <= 1 && <p className="text-xs text-gray-400">No hay otras organizaciones.</p>}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-gray-600">
-                      {clientes.length ? clientes.map((id) => todasOrgs.find((o) => o.id === id)?.nombre ?? '—').join(', ') : 'Solo a su propia organización.'}
-                    </p>
-                  )}
+                  <p className="text-sm text-gray-600">
+                    {clientes.length ? clientes.map((id) => todasOrgs.find((o) => o.id === id)?.nombre ?? '—').join(', ') : 'Solo a su propia organización.'}
+                  </p>
                 </div>
               )}
             </Tarjeta>

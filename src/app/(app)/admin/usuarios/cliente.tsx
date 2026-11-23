@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabaseNavegador } from '@/lib/supabase/client';
 import { cargarOrgsPropias } from '@/lib/datos';
+import { AREA_PLATAFORMA, leerAreaCliente } from '@/lib/area';
 import {
   DESCRIPCION_ROL, NOMBRE_ROL, esSuperadmin, puedeAdministrarOrg,
   type Administrador, type AsignacionRol, type Organizacion, type Rol, type Tienda,
@@ -28,7 +29,17 @@ async function llamar(body: Record<string, unknown>): Promise<Respuesta> {
   return data as Respuesta;
 }
 
-export default function UsuariosCliente({ roles, miId }: { roles: AsignacionRol[]; miId: string }) {
+export default function UsuariosCliente({
+  roles,
+  miId,
+  modoPlataforma = false,
+  orgFijaId,
+}: {
+  roles: AsignacionRol[];
+  miId: string;
+  modoPlataforma?: boolean;
+  orgFijaId?: string;
+}) {
   const sb = supabaseNavegador();
   const superadmin = esSuperadmin(roles);
   const [admins, setAdmins] = useState<Administrador[]>([]);
@@ -38,10 +49,15 @@ export default function UsuariosCliente({ roles, miId }: { roles: AsignacionRol[
   const [form, setForm] = useState<Form | null>(null);
   const [error, setError] = useState('');
   const [cargando, setCargando] = useState(false);
+  const [orgActivaId, setOrgActivaId] = useState<string | null>(null);
   const [credencial, setCredencial] = useState<{ email: string; password: string } | null>(null);
 
-  const orgsAdministrables = orgs.filter((o) => puedeAdministrarOrg(roles, o.id));
-  const rolesDisponibles: Rol[] = superadmin ? ['SUPERADMIN', 'ADMIN_ORG', 'SUPERVISOR', 'BODEGA', 'AUDITOR'] : ['ADMIN_ORG', 'SUPERVISOR', 'BODEGA', 'AUDITOR'];
+  // En la plataforma el superadmin asigna roles en cualquier organización; en una organización, solo su administrador.
+  const orgsAdministrables = orgs.filter((o) =>
+    orgFijaId ? o.id === orgFijaId : modoPlataforma ? superadmin : puedeAdministrarOrg(roles, o.id) && (!orgActivaId || o.id === orgActivaId),
+  );
+  const rolesDisponibles: Rol[] =
+    modoPlataforma && superadmin && !orgFijaId ? ['SUPERADMIN', 'ADMIN_ORG', 'SUPERVISOR', 'BODEGA', 'AUDITOR'] : ['ADMIN_ORG', 'SUPERVISOR', 'BODEGA', 'AUDITOR'];
 
   const cargar = useCallback(async () => {
     const [a, r, t] = await Promise.all([
@@ -57,7 +73,11 @@ export default function UsuariosCliente({ roles, miId }: { roles: AsignacionRol[
 
   useEffect(() => {
     cargar();
-  }, [cargar]);
+    if (!modoPlataforma) {
+      const area = leerAreaCliente();
+      if (area && area !== AREA_PLATAFORMA) setOrgActivaId(area);
+    }
+  }, [cargar, modoPlataforma]);
 
   const nombreOrg = (id: string | null) => orgs.find((o) => o.id === id)?.nombre ?? '';
   const nombreTienda = (id: string | null) => tiendas.find((t) => t.id === id)?.codigo ?? '';
@@ -107,12 +127,22 @@ export default function UsuariosCliente({ roles, miId }: { roles: AsignacionRol[
   return (
     <div>
       <Titulo accion={<Boton onClick={() => { setForm({ nombre: '', email: '', activo: true, roles: [rolVacio()] }); setError(''); }}>+ Usuario</Boton>}>
-        Usuarios administradores
+        {orgFijaId ? 'Administradores de la organización' : 'Usuarios administradores'}
       </Titulo>
-      <p className="mb-4 text-sm text-gray-500">Personas que entran con correo y contraseña. Los empleados de tienda se manejan en la sección Empleados.</p>
+      <p className="mb-4 text-sm text-gray-500">
+        {orgFijaId
+          ? 'Crea aquí el primer administrador de la organización; él podrá crear sus sucursales, empleados y demás usuarios.'
+          : 'Personas que entran con correo y contraseña. Los empleados de tienda se manejan en la sección Empleados.'}
+      </p>
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        {admins.map((a) => {
+        {admins
+          .filter((a) => {
+            const r = filas.filter((f) => f.administrador_id === a.id);
+            const org = orgFijaId ?? (modoPlataforma ? null : orgActivaId);
+            return org ? r.some((f) => f.organizacion_id === org) : true;
+          })
+          .map((a) => {
           const susRoles = filas.filter((f) => f.administrador_id === a.id);
           return (
             <Tarjeta key={a.id} className="flex items-start justify-between gap-3">

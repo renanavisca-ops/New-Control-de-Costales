@@ -31,7 +31,7 @@ export interface Administrador {
 }
 
 export type Contexto =
-  | { tipo: 'ADMIN'; admin: Administrador; roles: AsignacionRol[] }
+  | { tipo: 'ADMIN'; admin: Administrador; roles: AsignacionRol[]; soportes?: { organizacion_id: string; expira_at: string }[] }
   | {
       tipo: 'DISPOSITIVO';
       dispositivo: { id: string; nombre: string; estado: string };
@@ -86,10 +86,20 @@ export interface Dispositivo {
 
 export const esSuperadmin = (roles: AsignacionRol[]) => roles.some((r) => r.rol === 'SUPERADMIN');
 
+// El superadmin NO tiene permisos dentro de las organizaciones (solo plataforma); con soporte ve en solo lectura.
 export const tieneRol = (roles: AsignacionRol[], orgId: string | null, permitidos: Rol[]) =>
-  esSuperadmin(roles) || roles.some((r) => r.organizacion_id === orgId && permitidos.includes(r.rol));
+  roles.some((r) => r.organizacion_id === orgId && permitidos.includes(r.rol));
 
 export const puedeAdministrarOrg = (roles: AsignacionRol[], orgId: string | null) => tieneRol(roles, orgId, ['ADMIN_ORG']);
 
-export const tieneAlgunRol = (roles: AsignacionRol[], permitidos: Rol[]) =>
-  esSuperadmin(roles) || roles.some((r) => permitidos.includes(r.rol));
+export const tieneAlgunRol = (roles: AsignacionRol[], permitidos: Rol[]) => roles.some((r) => permitidos.includes(r.rol));
+
+/** Área de trabajo del panel: la plataforma (solo superadmin) o una organización. */
+export type ModoOrg = 'MIEMBRO' | 'SOPORTE' | 'SIN_ACCESO';
+export interface OpcionArea {
+  id: string; // 'plataforma' o id de organización
+  nombre: string;
+  modo: ModoOrg | 'PLATAFORMA';
+  roles: Rol[];
+  soporteHasta: string | null;
+}

@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import type { Organizacion } from '@/lib/tipos';
 import { Selector } from '@/components/ui';
+import { AREA_PLATAFORMA, leerAreaCliente } from '@/lib/area';
 
 const CLAVE = 'cc_org_activa';
 
@@ -20,11 +21,14 @@ export function useOrgActiva(orgs: Organizacion[]) {
   useEffect(() => {
     if (!orgs.length) return;
     let guardada: string | null = null;
-    try {
-      guardada = localStorage.getItem(CLAVE);
-    } catch {
-      /* sin almacenamiento */
-    }
+    const area = leerAreaCliente();
+    if (area && area !== AREA_PLATAFORMA) guardada = area;
+    else
+      try {
+        guardada = localStorage.getItem(CLAVE);
+      } catch {
+        /* sin almacenamiento */
+      }
     setOrgId((actual) => {
       if (actual && orgs.some((o) => o.id === actual)) return actual;
       if (guardada && orgs.some((o) => o.id === guardada)) return guardada;
@@ -42,7 +46,11 @@ export function useOrgActiva(orgs: Organizacion[]) {
   return [orgId, elegir] as const;
 }
 
-export function SelectorOrg({ orgs, valor, onCambio }: { orgs: Organizacion[]; valor: string | null; onCambio: (id: string) => void }) {
+export function SelectorOrg(_props: { orgs: Organizacion[]; valor: string | null; onCambio: (id: string) => void }) {
+  return null;
+}
+
+export function SelectorOrgAntiguo({ orgs, valor, onCambio }: { orgs: Organizacion[]; valor: string | null; onCambio: (id: string) => void }) {
   if (orgs.length === 0) return null;
   if (orgs.length === 1)
     return (

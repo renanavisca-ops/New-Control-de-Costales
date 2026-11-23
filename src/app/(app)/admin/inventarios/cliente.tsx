@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabaseNavegador } from '@/lib/supabase/client';
 import { cargarOrgsPropias, rpc } from '@/lib/datos';
-import { esSuperadmin, puedeAdministrarOrg, type AsignacionRol, type Categoria, type Organizacion, type Tienda } from '@/lib/tipos';
+import { puedeAdministrarOrg, type AsignacionRol, type Categoria, type Organizacion, type Tienda } from '@/lib/tipos';
 import { Aviso, Boton, Campo, Insignia, Modal, Selector, Tarjeta, Titulo } from '@/components/ui';
 
 type Inventario = {
@@ -42,7 +42,7 @@ export default function InventariosCliente({ roles }: { roles: AsignacionRol[] }
   const tiendasSupervisables = useMemo(
     () =>
       tiendas.filter(
-        (t) => esSuperadmin(roles) || puedeAdministrarOrg(roles, t.organizacion_id) || roles.some((r) => r.rol === 'SUPERVISOR' && r.tienda_id === t.id),
+        (t) => puedeAdministrarOrg(roles, t.organizacion_id) || roles.some((r) => r.rol === 'SUPERVISOR' && r.tienda_id === t.id),
       ),
     [tiendas, roles],
   );
