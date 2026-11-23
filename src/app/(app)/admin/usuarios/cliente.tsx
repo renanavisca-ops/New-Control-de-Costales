@@ -111,7 +111,7 @@ export default function UsuariosCliente({ roles, miId }: { roles: AsignacionRol[
       </Titulo>
       <p className="mb-4 text-sm text-gray-500">Personas que entran con correo y contraseña. Los empleados de tienda se manejan en la sección Empleados.</p>
 
-      <div className="space-y-3">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         {admins.map((a) => {
           const susRoles = filas.filter((f) => f.administrador_id === a.id);
           return (

@@ -137,7 +137,7 @@ export default function InventariosCliente({ roles }: { roles: AsignacionRol[] }
         Al abrir un inventario, el celular de la tienda muestra el botón &quot;Inventario&quot; y los empleados escanean los costales que encuentran. El sistema compara contra el stock que había al abrirlo.
       </p>
 
-      <div className="space-y-2">
+      <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
         {inventarios.length === 0 && <p className="text-sm text-gray-400">Sin inventarios.</p>}
         {inventarios.map((i) => (
           <Tarjeta key={i.id} className="flex items-center justify-between gap-3 py-3">

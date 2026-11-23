@@ -97,7 +97,7 @@ export default function CostalesCliente({ roles }: { roles: AsignacionRol[] }) {
         </div>
       </Tarjeta>
 
-      <div className="space-y-2">
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
         {visibles.map((f) => (
           <Tarjeta key={f.id} className="flex items-center justify-between py-3">
             <div>

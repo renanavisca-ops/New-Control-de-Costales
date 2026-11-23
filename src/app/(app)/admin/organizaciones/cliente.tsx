@@ -66,7 +66,7 @@ export default function OrganizacionesCliente() {
       <p className="mb-4 text-sm text-gray-500">
         Cada organización tiene sus sucursales (una puede ser centro de distribución), empleados, celulares y usuarios. Toca <b>Administrar</b> para crear sus sucursales. El prefijo se usa en el código de los empleados (ej. PTA-0001).
       </p>
-      <div className="space-y-3">
+      <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
         {orgs.map((o) => (
           <Tarjeta key={o.id} className="flex flex-wrap items-center justify-between gap-3">
             <div>

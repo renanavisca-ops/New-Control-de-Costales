@@ -46,13 +46,13 @@ export function SelectorOrg({ orgs, valor, onCambio }: { orgs: Organizacion[]; v
   if (orgs.length === 0) return null;
   if (orgs.length === 1)
     return (
-      <div className="mb-4 rounded-2xl bg-white px-4 py-3 text-sm shadow-sm">
+      <div className="mb-4 inline-block rounded-2xl bg-white px-4 py-3 text-sm shadow-sm">
         <span className="text-xs font-bold uppercase tracking-wide text-gray-400">Organización · </span>
         <span className="font-black">{orgs[0].nombre}</span>
       </div>
     );
   return (
-    <div className="mb-4">
+    <div className="mb-4 max-w-md">
       <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-gray-400">Organización</span>
       <Selector value={valor ?? ''} onChange={(e) => onCambio(e.target.value)}>
         {orgs.map((o) => (

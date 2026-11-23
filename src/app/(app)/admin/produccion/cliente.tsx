@@ -132,7 +132,7 @@ export default function ProduccionCliente({ roles }: { roles: AsignacionRol[] })
           Solo alertas
         </label>
       </div>
-      <div className="space-y-2">
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
         {visibles.map((f) => (
           <Tarjeta key={f.id} className={`flex items-center justify-between py-3 ${f.diferencia !== null && Math.abs(f.diferencia) >= UMBRAL_ALERTA ? 'border-red-200 bg-red-50' : ''}`}>
             <div>

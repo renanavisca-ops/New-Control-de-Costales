@@ -92,7 +92,7 @@ export default function RetornosCliente({ roles }: { roles: AsignacionRol[] }) {
         </Selector>
         <Entrada placeholder="Buscar código (ej. SAL-B105-AB12)" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} />
       </div>
-      <div className="space-y-2">
+      <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
         {visibles.length === 0 && <p className="text-sm text-gray-400">Sin retornos.</p>}
         {visibles.map((r) => (
           <Tarjeta key={r.id} className="flex items-center justify-between gap-3 py-3">
