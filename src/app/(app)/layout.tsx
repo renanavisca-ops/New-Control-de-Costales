@@ -29,7 +29,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     <div className="min-h-screen lg:flex">
       <Navegacion roles={contexto.roles} nombre={contexto.admin.nombre} rol={rolPrincipal ? NOMBRE_ROL[rolPrincipal] : ''} />
       <main className="min-w-0 flex-1">
-        <div className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-6 lg:px-10 lg:py-8">{children}</div>
+        <div className="w-full max-w-[110rem] px-4 py-5 sm:px-6 lg:px-10 lg:py-8">{children}</div>
       </main>
     </div>
   );
