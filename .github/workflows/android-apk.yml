@@ -1,0 +1,26 @@
+name: APK Android (tienda)
+# Igual que en Asistencia biométrica: compila un APK de prueba (debug) y lo publica como artefacto.
+on:
+  push:
+    branches: [main, 'claude/**']
+    paths: ['android/**', 'capacitor.config.ts', 'capacitor-www/**', 'package.json', '.github/workflows/android-apk.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  android-apk:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '21' }
+      - run: npm ci
+      - name: APK de prueba (debug)
+        run: npx cap sync android && cd android && chmod +x gradlew && ./gradlew assembleDebug --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: costales-tienda-debug-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+          retention-days: 14

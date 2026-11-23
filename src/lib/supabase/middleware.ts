@@ -27,7 +27,8 @@ export async function actualizarSesion(request: NextRequest) {
 
   if (!user && !esPublica) {
     const url = request.nextUrl.clone();
-    url.pathname = '/login';
+    // El celular de tienda (app) sin activar va directo a la activación
+    url.pathname = ruta.startsWith('/tienda') ? '/dispositivo/activar' : '/login';
     return NextResponse.redirect(url);
   }
   if (user && ruta === '/login') {
