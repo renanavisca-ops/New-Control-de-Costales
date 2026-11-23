@@ -75,10 +75,10 @@ export function Insignia({ children, color = 'indigo' }: { children: ReactNode; 
   return <span className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase ${c}`}>{children}</span>;
 }
 
-export function Modal({ titulo, onCerrar, children }: { titulo: string; onCerrar: () => void; children: ReactNode }) {
+export function Modal({ titulo, onCerrar, children, ancho = false }: { titulo: string; onCerrar: () => void; children: ReactNode; ancho?: boolean }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-3 sm:items-center">
-      <div className="max-h-[90vh] w-full max-w-md space-y-4 overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl">
+      <div className={`max-h-[90vh] w-full ${ancho ? 'max-w-4xl' : 'max-w-md'} space-y-4 overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl`}>
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-black">{titulo}</h2>
           <button onClick={onCerrar} className="text-sm font-bold text-gray-400">

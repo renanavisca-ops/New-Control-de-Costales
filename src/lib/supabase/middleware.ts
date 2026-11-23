@@ -2,7 +2,7 @@ import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import { SUPABASE_KEY, SUPABASE_URL } from '@/lib/config';
 
-const RUTAS_PUBLICAS = ['/login', '/dispositivo/activar', '/recuperar', '/auth/confirmar'];
+const RUTAS_PUBLICAS = ['/login', '/dispositivo/activar', '/recuperar', '/auth/confirmar', '/registro'];
 
 export async function actualizarSesion(request: NextRequest) {
   let respuesta = NextResponse.next({ request });
