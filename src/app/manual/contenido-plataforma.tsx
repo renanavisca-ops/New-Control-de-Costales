@@ -64,18 +64,27 @@ export function ManualPlataforma() {
       </Seccion>
 
       <Seccion id="gestionar" titulo="5. Gestionar una organización">
-        <Figura img="p-org-detalle" pie="Gestionar: datos, abastecimiento y administradores" />
+        <Figura img="p-org-detalle" pie="Gestionar: datos, quién la abastece, a quién abastecen sus centros y administradores" />
         <Lista>
           <li><B>Datos de la organización:</B> cambiar el nombre o desactivarla.</li>
           <li>
-            <B>Abastecimiento:</B> marca los centros de distribución de otras organizaciones que la abastecen. Así ese centro puede enviarle
-            traslados y la organización usa sus productos.
+            <B>Quién la abastece:</B> marca los centros de distribución de otras organizaciones que le envían costales. Así ese centro puede
+            enviarle traslados y la organización usa sus productos.
+          </li>
+          <li>
+            <B>Sus centros de distribución abastecen a:</B> si la organización tiene centro, pulsa <B>+ Abastecer a otra organización</B> y marca
+            a cuáles despacha. Con <B>✕</B> dejas de abastecer a una. Es lo mismo que el punto anterior, visto desde el centro.
           </li>
           <li>
             <B>Administradores de la organización → + Usuario:</B> crea su administrador con nombre, correo y rol Admin. organización. Recibe
             una contraseña temporal que cambia al entrar.
           </li>
         </Lista>
+        <Figura img="p-abastecer" pie="Elegir a qué organizaciones abastece el centro" />
+        <Nota>
+          Solo el superadministrador asigna el abastecimiento. Si todavía no hay otra organización, el botón avisa que primero hay que crearla en
+          Mi plataforma → + Organización.
+        </Nota>
       </Seccion>
 
       <Seccion id="registro" titulo="6. Registro libre desde el enlace web">
