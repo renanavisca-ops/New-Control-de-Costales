@@ -35,6 +35,13 @@ const MENU_ORG: Grupo[] = [
       { href: '/admin/soporte', etiqueta: 'Acceso de soporte', icono: '🛟', roles: ['ADMIN_ORG', 'AUDITOR'], soporte: false },
     ],
   },
+  {
+    titulo: 'Ayuda',
+    items: [
+      { href: '/manual/organizacion', etiqueta: 'Manual de uso', icono: '📘', roles: TODOS, soporte: true },
+      { href: '/manual/tienda', etiqueta: 'Manual de la tienda', icono: '📱', roles: TODOS, soporte: true },
+    ],
+  },
 ];
 
 /** Menú de la plataforma (el negocio: organizaciones y quién las administra). */
@@ -45,6 +52,12 @@ const MENU_PLATAFORMA: Grupo[] = [
       { href: '/plataforma', etiqueta: 'Organizaciones', icono: '🏢', roles: [], soporte: false },
       { href: '/plataforma/usuarios', etiqueta: 'Administradores', icono: '👥', roles: [], soporte: false },
       { href: '/plataforma/auditoria', etiqueta: 'Auditoría de soporte', icono: '🧾', roles: [], soporte: false },
+    ],
+  },
+  {
+    titulo: 'Ayuda',
+    items: [
+      { href: '/manual', etiqueta: 'Manuales', icono: '📘', roles: [], soporte: false },
     ],
   },
 ];
