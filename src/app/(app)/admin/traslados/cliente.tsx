@@ -6,19 +6,20 @@ import { leerFilasExcel } from '@/lib/excel';
 import { buscarProducto, leerTraslado, type Traslado } from '@/lib/traslado';
 import type { AsignacionRol, Categoria, Organizacion, Tienda } from '@/lib/tipos';
 import { useOrgActiva } from '@/components/selector-org';
-import { Aviso, Boton, Insignia, Modal, Selector, Tarjeta, Titulo } from '@/components/ui';
+import { Aviso, Boton, Entrada, Insignia, Modal, Selector, Tarjeta, Titulo } from '@/components/ui';
 
 type Resumen = {
   id: string; numero: string; fecha: string | null; referencia: string | null; created_at: string;
   centro: string; tienda: string; tienda_org: string;
   total_costales: number; total_piezas: number; total_precio: number;
   recibidos: number; pendientes: number; valor_pendiente: number;
+  sin_existencia: string[]; revisado_at: string | null; nota_revision: string | null;
 };
 type Detalle = {
   codigo: string; producto: string | null; piezas: number | null; precio: number | null; peso: number | null;
   estado: string; recibido_at: string | null; recibido_por: string | null;
 };
-type Carga = { archivo: string; t: Traslado; mapa: Record<string, string> };
+type Carga = { archivo: string; t: Traslado; mapa: Record<string, string>; modo: 'TRASLADO' | 'EXISTENCIA' };
 
 const q = (n: number | null | undefined) =>
   'Q' + Number(n ?? 0).toLocaleString('es-GT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -39,6 +40,8 @@ export default function TrasladosCliente({ roles, soloLectura }: { roles: Asigna
   const [detalle, setDetalle] = useState<{ r: Resumen; filas: Detalle[] } | null>(null);
   const [soloPendientes, setSoloPendientes] = useState(false);
   const archivoRef = useRef<HTMLInputElement>(null);
+  const existenciaRef = useRef<HTMLInputElement>(null);
+  const [nota, setNota] = useState('');
 
   const puedeCargar =
     !soloLectura && !!orgId && roles.some((r) => r.organizacion_id === orgId && (r.rol === 'ADMIN_ORG' || r.rol === 'BODEGA'));
@@ -52,7 +55,7 @@ export default function TrasladosCliente({ roles, soloLectura }: { roles: Asigna
     const [c, p, r] = await Promise.all([
       sb.from('tiendas').select('*').eq('organizacion_id', orgId).eq('es_central', true).eq('activa', true).order('codigo'),
       sb.from('categorias').select('*').eq('organizacion_id', orgId).order('nombre'),
-      sb.rpc('resumen_traslados', { p_org: orgId }),
+      sb.rpc('traslados_resumen', { p_org: orgId }),
     ]);
     const cs = (c.data as Tienda[]) || [];
     setCentros(cs);
@@ -65,9 +68,9 @@ export default function TrasladosCliente({ roles, soloLectura }: { roles: Asigna
     cargar();
   }, [cargar]);
 
-  const elegirArchivo = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const elegirArchivo = (modo: Carga['modo']) => async (e: React.ChangeEvent<HTMLInputElement>) => {
     const archivo = e.target.files?.[0];
-    if (archivoRef.current) archivoRef.current.value = '';
+    e.target.value = '';
     if (!archivo) return;
     setError('');
     setAviso('');
@@ -79,7 +82,7 @@ export default function TrasladosCliente({ roles, soloLectura }: { roles: Asigna
       new Set(t.costales.map((k) => k.seccion)).forEach((s) => (mapa[s] = buscarProducto(s, nombres) ?? CREAR));
       const centroSalida = centros.find((c) => (c.bodega || c.codigo).toUpperCase() === t.bodegaSalida.toUpperCase());
       if (centroSalida) setCentroId(centroSalida.id);
-      setCarga({ archivo: archivo.name, t, mapa });
+      setCarga({ archivo: archivo.name, t, mapa, modo });
     } catch (err) {
       setError('No se pudo leer el archivo: ' + (err as Error).message);
     }
@@ -103,7 +106,29 @@ export default function TrasladosCliente({ roles, soloLectura }: { roles: Asigna
     setOcupado(true);
     setError('');
     const { t, mapa } = carga;
-    const { data, error } = await rpc<{ tienda: string; costales: number; piezas: number; precio: number; productos_nuevos: number }>(
+    const filas = t.costales.map((k) => ({
+      codigo: k.codigo,
+      producto: mapa[k.seccion] === CREAR ? k.seccion : mapa[k.seccion],
+      piezas: k.piezas,
+      precio: k.precio,
+      peso: k.peso,
+    }));
+    if (carga.modo === 'EXISTENCIA') {
+      const r = await rpc<{ cargados: number; ya_estaban: number; productos_nuevos: number; tienda: string }>('cargar_existencia', {
+        p_tienda: centroId,
+        p_costales: filas,
+      });
+      setOcupado(false);
+      if (r.error) return setError(r.error);
+      setCarga(null);
+      setAviso(
+        `Existencia de ${r.data!.tienda}: ${r.data!.cargados} costales agregados` +
+          (r.data!.ya_estaban ? `, ${r.data!.ya_estaban} ya estaban cargados` : '') +
+          (r.data!.productos_nuevos ? `. Se crearon ${r.data!.productos_nuevos} productos nuevos.` : '.'),
+      );
+      return cargar();
+    }
+    const { data, error } = await rpc<{ tienda: string; costales: number; piezas: number; precio: number; productos_nuevos: number; sin_existencia: string[] }>(
       'importar_traslado',
       {
         p_centro: centroId,
@@ -112,13 +137,7 @@ export default function TrasladosCliente({ roles, soloLectura }: { roles: Asigna
         p_referencia: t.referencia,
         p_bodega_entrada: t.bodegaEntrada,
         p_archivo: carga.archivo,
-        p_costales: t.costales.map((k) => ({
-          codigo: k.codigo,
-          producto: mapa[k.seccion] === CREAR ? k.seccion : mapa[k.seccion],
-          piezas: k.piezas,
-          precio: k.precio,
-          peso: k.peso,
-        })),
+        p_costales: filas,
         p_total_piezas: t.totalPiezas,
         p_total_precio: t.totalPrecio,
       },
@@ -130,8 +149,22 @@ export default function TrasladosCliente({ roles, soloLectura }: { roles: Asigna
       `Traslado ${t.numero} cargado: ${data!.costales} costales (${data!.piezas} piezas, ${q(data!.precio)}) en camino a ${data!.tienda}.` +
         (data!.productos_nuevos ? ` Se crearon ${data!.productos_nuevos} productos nuevos.` : ''),
     );
+    if (data!.sin_existencia?.length)
+      setError(
+        `Atención: ${data!.sin_existencia.length} costales de este traslado no estaban en el inventario del centro. ` +
+          'Se enviaron igual; revísalos en el detalle del traslado.',
+      );
     cargar();
   };
+
+  const marcarRevisado = async (r: Resumen) => {
+    const { error } = await rpc('revisar_traslado', { p_id: r.id, p_nota: nota });
+    if (error) return alert(error);
+    setNota('');
+    setDetalle(null);
+    cargar();
+  };
+  const porRevisar = lista.filter((r) => r.sin_existencia.length > 0 && !r.revisado_at);
 
   const verDetalle = async (r: Resumen) => {
     const { data } = await sb.rpc('detalle_traslado', { p_id: r.id });
@@ -140,7 +173,7 @@ export default function TrasladosCliente({ roles, soloLectura }: { roles: Asigna
   };
 
   const anular = async (r: Resumen) => {
-    if (!confirm(`¿Anular el traslado ${r.numero}? Se borrarán sus ${r.total_costales} costales en tránsito.`)) return;
+    if (!confirm(`¿Anular el traslado ${r.numero}? Sus costales regresan al inventario del centro.`)) return;
     const { error } = await rpc('anular_traslado', { p_id: r.id });
     if (error) return alert(error);
     setDetalle(null);
@@ -153,10 +186,12 @@ export default function TrasladosCliente({ roles, soloLectura }: { roles: Asigna
         accion={
           puedeCargar &&
           centros.length > 0 && (
-            <>
-              <input ref={archivoRef} type="file" accept=".xls,.xlsx" className="hidden" onChange={elegirArchivo} />
+            <div className="flex flex-wrap gap-2">
+              <input ref={archivoRef} type="file" accept=".xls,.xlsx" className="hidden" onChange={elegirArchivo('TRASLADO')} />
+              <input ref={existenciaRef} type="file" accept=".xls,.xlsx" className="hidden" onChange={elegirArchivo('EXISTENCIA')} />
+              <Boton variante="secundario" onClick={() => existenciaRef.current?.click()}>📦 Cargar existencia del centro</Boton>
               <Boton onClick={() => archivoRef.current?.click()}>⬆ Cargar traslado (Excel)</Boton>
-            </>
+            </div>
           )
         }
       >
@@ -166,6 +201,19 @@ export default function TrasladosCliente({ roles, soloLectura }: { roles: Asigna
         El centro de distribución sube el Excel del traslado. Los costales quedan <b>en tránsito</b> hasta que la tienda los escanea al
         recibirlos. Aquí ves cuántos faltan por llegar y su valor.
       </p>
+      <p className="mb-4 text-sm text-gray-500">
+        <b>Existencia del centro:</b> sube el reporte de los costales empacados (mismo formato del traslado) conforme se van
+        produciendo. Al cargar un traslado, sus costales salen de esa existencia. Puedes subir el mismo archivo más de una vez: los
+        costales que ya estaban no se duplican.
+      </p>
+      {porRevisar.length > 0 && (
+        <div className="mb-4">
+          <Aviso tipo="error">
+            ⚠ {porRevisar.length} traslado{porRevisar.length > 1 ? 's tienen' : ' tiene'} costales que no estaban en el inventario del
+            centro ({porRevisar.map((r) => '#' + r.numero).join(', ')}). Ábrelos para revisar y marcarlos como revisados.
+          </Aviso>
+        </div>
+      )}
       {puedeCargar && centros.length === 0 && (
         <div className="mb-4">
           <Aviso tipo="info">Para cargar traslados, la organización necesita una sucursal marcada como centro de distribución.</Aviso>
@@ -209,6 +257,11 @@ export default function TrasladosCliente({ roles, soloLectura }: { roles: Asigna
                     <Insignia color="red">Faltan {r.pendientes} · {q(r.valor_pendiente)}</Insignia>
                   )}
                   <p className="mt-1 text-xs text-gray-400">{r.recibidos} de {r.total_costales} recibidos</p>
+                  {r.sin_existencia.length > 0 && (
+                    <p className={`mt-1 text-xs font-bold ${r.revisado_at ? 'text-gray-400' : 'text-red-600'}`}>
+                      ⚠ {r.sin_existencia.length} sin existencia en el centro{r.revisado_at ? ' (revisado)' : ''}
+                    </p>
+                  )}
                 </td>
               </tr>
             ))}
@@ -222,17 +275,26 @@ export default function TrasladosCliente({ roles, soloLectura }: { roles: Asigna
       </div>
 
       {carga && (
-        <Modal ancho titulo={`Traslado #${carga.t.numero || '?'}`} onCerrar={() => setCarga(null)}>
+        <Modal
+          ancho
+          titulo={carga.modo === 'EXISTENCIA' ? 'Cargar existencia del centro' : `Traslado #${carga.t.numero || '?'}`}
+          onCerrar={() => setCarga(null)}
+        >
+          {carga.modo === 'EXISTENCIA' && (
+            <Aviso tipo="info">
+              Estos costales se agregan al inventario del centro (no se envían a ninguna tienda). Los que ya estaban cargados se omiten.
+            </Aviso>
+          )}
           <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
             <Dato e="Fecha" v={carga.t.fecha ? new Date(carga.t.fecha + 'T12:00:00').toLocaleDateString() : '—'} />
-            <Dato e="Bodega de entrada" v={carga.t.bodegaEntrada || '—'} />
+            <Dato e={carga.modo === 'EXISTENCIA' ? 'Archivo' : 'Bodega de entrada'} v={carga.modo === 'EXISTENCIA' ? carga.archivo : carga.t.bodegaEntrada || '—'} />
             <Dato e="Costales" v={String(carga.t.costales.length)} />
             <Dato e="Piezas · valor" v={`${carga.t.costales.reduce((s, k) => s + k.piezas, 0).toLocaleString()} · ${q(carga.t.costales.reduce((s, k) => s + k.precio, 0))}`} />
           </div>
           {carga.t.referencia && <p className="text-sm text-gray-500">Referencia: {carga.t.referencia}</p>}
           {centros.length > 1 && (
             <label className="block text-sm font-bold">
-              Sale de
+              {carga.modo === 'EXISTENCIA' ? 'Centro' : 'Sale de'}
               <Selector value={centroId} onChange={(e) => setCentroId(e.target.value)}>
                 {centros.map((c) => <option key={c.id} value={c.id}>{c.codigo} · {c.nombre}</option>)}
               </Selector>
@@ -280,7 +342,11 @@ export default function TrasladosCliente({ roles, soloLectura }: { roles: Asigna
           </div>
           {error && <Aviso tipo="error">{error}</Aviso>}
           <Boton className="w-full" disabled={ocupado || !centroId} onClick={confirmar}>
-            {ocupado ? 'Cargando…' : `Confirmar: ${carga.t.costales.length} costales en camino a ${carga.t.bodegaEntrada}`}
+            {ocupado
+              ? 'Cargando…'
+              : carga.modo === 'EXISTENCIA'
+                ? `Confirmar: agregar ${carga.t.costales.length} costales a la existencia del centro`
+                : `Confirmar: ${carga.t.costales.length} costales en camino a ${carga.t.bodegaEntrada}`}
           </Boton>
         </Modal>
       )}
@@ -293,6 +359,27 @@ export default function TrasladosCliente({ roles, soloLectura }: { roles: Asigna
             <Dato e="Valor que falta" v={q(detalle.r.valor_pendiente)} />
             <Dato e="Valor total" v={q(detalle.r.total_precio)} />
           </div>
+          {detalle.r.sin_existencia.length > 0 && (
+            <div className={`space-y-2 rounded-2xl p-4 ${detalle.r.revisado_at ? 'bg-gray-50' : 'bg-red-50'}`}>
+              <p className="text-sm font-black text-red-700">
+                ⚠ {detalle.r.sin_existencia.length} costales no estaban en el inventario del centro
+              </p>
+              <p className="font-mono text-xs text-gray-600">{detalle.r.sin_existencia.join(', ')}</p>
+              {detalle.r.revisado_at ? (
+                <p className="text-xs text-gray-500">
+                  Revisado el {new Date(detalle.r.revisado_at).toLocaleString()}
+                  {detalle.r.nota_revision ? `: ${detalle.r.nota_revision}` : ''}
+                </p>
+              ) : (
+                puedeCargar && (
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Entrada placeholder="Nota (qué se encontró)" value={nota} onChange={(e) => setNota(e.target.value)} />
+                    <Boton variante="secundario" onClick={() => marcarRevisado(detalle.r)}>Marcar revisado</Boton>
+                  </div>
+                )
+              )}
+            </div>
+          )}
           <label className="flex items-center gap-2 text-sm font-bold">
             <input type="checkbox" checked={soloPendientes} onChange={(e) => setSoloPendientes(e.target.checked)} />
             Ver solo los que no han llegado
