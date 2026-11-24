@@ -101,6 +101,7 @@ export default function TiendasCliente({ roles, orgFijaId }: { roles: Asignacion
                   <p className="text-sm text-gray-600">
                     {clientes.length ? clientes.map((id) => todasOrgs.find((o) => o.id === id)?.nombre ?? '—').join(', ') : 'Solo a su propia organización.'}
                   </p>
+                  <p className="mt-1 text-[11px] text-gray-400">Para abastecer a otra organización, pídelo al administrador de la plataforma.</p>
                 </div>
               )}
             </Tarjeta>
