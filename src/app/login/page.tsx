@@ -50,6 +50,7 @@ export default function LoginPage() {
         <a href="/recuperar" className="block text-center text-sm font-bold text-indigo-600">¿Olvidaste tu contraseña?</a>
         <a href="/registro" className="block rounded-2xl border-2 border-indigo-100 py-3 text-center text-sm font-black text-indigo-600">¿Empresa nueva? Regístrala aquí</a>
         <a href="/dispositivo/activar" className="block text-center text-xs font-bold text-indigo-600">¿Es el celular de una tienda? Actívalo aquí</a>
+        <a href="/manual" className="block text-center text-xs font-bold text-gray-400">📘 Manuales de uso</a>
       </form>
     </main>
   );

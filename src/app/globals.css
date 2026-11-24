@@ -17,3 +17,20 @@ body {
   overscroll-behavior-y: contain;
   -webkit-tap-highlight-color: transparent;
 }
+
+/* Manuales: impresión / PDF */
+@media print {
+  @page { size: A4; margin: 14mm 14mm 16mm; }
+  html { font-size: 12px; }
+  body { background: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .no-imprimir { display: none !important; }
+  .manual { max-width: none !important; padding: 0 !important; }
+  .manual article { padding: 0 !important; }
+  .manual-portada { break-after: page; min-height: 60vh; display: flex; flex-direction: column; justify-content: center; }
+  .manual-indice { break-after: page; border: none; }
+  .manual-seccion { break-before: page; }
+  .manual-figura, .manual-tabla, .manual-nota, .manual-par, tr { break-inside: avoid; }
+  .manual-figura img { box-shadow: none; max-height: 120mm; width: auto; max-width: 100%; margin: 0 auto; display: block; }
+  .manual-par { grid-template-columns: 1fr 1fr !important; }
+  h2, h3 { break-after: avoid; }
+}

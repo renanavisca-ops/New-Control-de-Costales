@@ -126,6 +126,9 @@ export default function TiendaCliente({
               ))}
             </div>
           </section>
+          <a href="/manual/tienda" className="block rounded-3xl bg-white p-4 text-center text-sm font-black text-indigo-600 shadow-sm">
+            📘 Manual de uso del celular
+          </a>
         </div>
       )}
 
