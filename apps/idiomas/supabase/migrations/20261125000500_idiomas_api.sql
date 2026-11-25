@@ -352,7 +352,7 @@ begin
   v_recibo := jsonb_build_object(
     'evento_id', p_evento, 'posicion', p_posicion, 'numero_intento', v_n, 'resultado', ev.resultado,
     'correcta', v_ok, 'tipo_error', ev.tipo_error, 'pista_usada', v_pista,
-    'feedback', coalesce(ev.feedback, case when v_ok then '¡Bien!' when ev.resultado = 'omitida' then null else 'No es correcto.' end),
+    'feedback', coalesce(ev.feedback, case when v_ok then '¡Bien!' end),
     'solucion', case when ev.resultado in ('incorrecta', 'aceptable_con_aviso', 'omitida') then ev.solucion end,
     'explicacion', iv.explicacion,
     'reencolar', (ev.resultado in ('incorrecta', 'omitida') and v_n <= v_max_re)

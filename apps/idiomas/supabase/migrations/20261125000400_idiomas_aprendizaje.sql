@@ -191,6 +191,8 @@ begin
              row_number() over (partition by d.modalidad order by d.nivel, d.ultima_evidencia_at) as rn
         from idiomas.dominio d join idiomas.habilidades h on h.id = d.habilidad_id
        where d.inscripcion_id = s.inscripcion_id
+         and not exists (select 1 from idiomas.recomendaciones r0 where r0.sesion_id = p_sesion
+                          and r0.habilidad_id = d.habilidad_id and r0.modalidad = d.modalidad)
        order by rn, d.nivel, d.habilidad_id
     loop
       exit when v_agregados >= p_n;

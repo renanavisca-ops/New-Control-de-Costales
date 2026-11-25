@@ -156,6 +156,22 @@ begin
    where p_estado is null or q.estado = p_estado), '[]'::jsonb);
 end $$;
 
+-- Detalle editorial de un ítem, incluidas sus claves: SOLO para roles editoriales.
+create or replace function idiomas_api.editor_item(p_item text, p_version integer) returns jsonb
+language plpgsql stable security definer set search_path = '' as $$
+declare v uuid := idiomas.exigir_miembro();
+begin
+  if not idiomas.tiene_rol(array['editor', 'revisor']) then raise exception 'sin_permiso' using errcode = '42501'; end if;
+  return (select jsonb_build_object('item_id', iv.item_id, 'version', iv.version, 'tipo', iv.tipo, 'estado', iv.estado,
+      'contenido', iv.contenido, 'pista', iv.pista, 'explicacion', iv.explicacion,
+      'aceptadas', to_jsonb(k.aceptadas), 'opcion_correcta', k.opcion_correcta, 'errores_previstos', k.errores_previstos,
+      'cambios', (select coalesce(jsonb_agg(jsonb_build_object('id', c.id, 'estado', c.estado, 'motivo', c.motivo,
+          'propuesta', c.propuesta, 'propio', c.propuesto_por = v) order by c.id), '[]'::jsonb)
+        from idiomas.cambios_contenido c where c.item_id = iv.item_id and c.version_base = iv.version))
+    from idiomas.item_versiones iv join idiomas.item_claves k using (item_id, version)
+   where iv.item_id = p_item and iv.version = p_version);
+end $$;
+
 create or replace function idiomas_api.editor_proponer_cambio(p_item text, p_version_base integer, p_propuesta jsonb,
   p_motivo text, p_cola_id bigint default null) returns jsonb
 language plpgsql security definer set search_path = '' as $$
