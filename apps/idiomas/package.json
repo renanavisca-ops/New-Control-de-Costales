@@ -10,7 +10,9 @@
     "typecheck": "tsc --noEmit",
     "db:local": "bash scripts/db-local.sh",
     "test": "node --test --test-concurrency=1 \"tests/*.test.mjs\"",
-    "pretest": "bash scripts/db-local.sh > /dev/null"
+    "pretest": "bash scripts/db-local.sh > /dev/null",
+    "test:ui": "node tests/ui/recorrido.mjs",
+    "api:local": "node scripts/supabase-local.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.7.0",
