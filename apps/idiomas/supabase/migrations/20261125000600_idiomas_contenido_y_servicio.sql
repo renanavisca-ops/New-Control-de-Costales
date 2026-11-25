@@ -244,36 +244,10 @@ grant execute on all functions in schema idiomas_api to authenticated;
 reset role;
 
 -- -------------------------------------------------------------------------------------------------
--- B) Funciones de servicio. Dueño: postgres (necesitan leer si el usuario existe en la otra app,
--- SOLO para devolver un booleano). Ejecutables únicamente por service_role, nunca desde el cliente.
+-- B) Cuenta y servicio (proyecto Supabase DEDICADO a Puente: no existe ninguna otra app aquí)
 -- -------------------------------------------------------------------------------------------------
-create or replace function idiomas_api.servicio_pertenece_a_otra_app(p_user uuid) returns boolean
-language plpgsql stable security definer set search_path = '' as $$
-declare r boolean := false;
-begin
-  if to_regclass('public.administradores') is not null then
-    execute 'select exists (select 1 from public.administradores where id = $1)' into r using p_user;
-  end if;
-  if not r and to_regclass('public.dispositivos') is not null then
-    execute 'select exists (select 1 from public.dispositivos where usuario_id = $1)' into r using p_user;
-  end if;
-  return r;
-end $$;
-
-revoke all on function idiomas_api.servicio_pertenece_a_otra_app(uuid) from public, anon, authenticated;
-grant execute on function idiomas_api.servicio_pertenece_a_otra_app(uuid) to idiomas_propietario, service_role;
-
--- El resto de funciones de servicio pertenecen al rol de idiomas (no necesitan nada de la otra app)
+-- Validación previa al alta de una cuenta nueva. Solo service_role (ruta de servidor /api/registro).
 set role idiomas_propietario;
-create or replace function idiomas_api.servicio_estado_usuario(p_user uuid) returns jsonb
-language sql stable security definer set search_path = '' as $$
-  select jsonb_build_object(
-    'miembro_idiomas', exists (select 1 from idiomas.miembros where user_id = p_user),
-    'otra_app', idiomas_api.servicio_pertenece_a_otra_app(p_user),
-    'puede_borrar_auth', not exists (select 1 from idiomas.miembros where user_id = p_user)
-                         and not idiomas_api.servicio_pertenece_a_otra_app(p_user))
-$$;
-
 create or replace function idiomas_api.servicio_validar_alta(p_codigo text) returns jsonb
 language sql stable security definer set search_path = '' as $$
   select jsonb_build_object(
@@ -283,8 +257,23 @@ language sql stable security definer set search_path = '' as $$
       or exists (select 1 from idiomas.codigos_invitacion where codigo = upper(btrim(coalesce(p_codigo, '')))
                   and activo and (vence_at is null or vence_at > now()) and usos < usos_max))
 $$;
-
-revoke all on function idiomas_api.servicio_estado_usuario(uuid), idiomas_api.servicio_validar_alta(text)
-  from public, anon, authenticated;
-grant execute on function idiomas_api.servicio_estado_usuario(uuid), idiomas_api.servicio_validar_alta(text) to service_role;
+revoke all on function idiomas_api.servicio_validar_alta(text) from public, anon, authenticated;
+grant execute on function idiomas_api.servicio_validar_alta(text) to service_role;
 reset role;
+
+-- Elimina la cuenta de quien llama: primero todos sus datos de Puente y después su usuario de
+-- Auth. Dueño postgres (el único rol con permiso sobre auth.users); solo actúa sobre el propio uid.
+create or replace function idiomas_api.eliminar_mi_cuenta(p_confirmacion text) returns jsonb
+language plpgsql security definer set search_path = '' as $$
+declare v uuid := idiomas.uid();
+begin
+  if v is null then raise exception 'no_autenticado' using errcode = '28000'; end if;
+  if p_confirmacion is distinct from 'ELIMINAR' then raise exception 'confirmacion_requerida'; end if;
+  if exists (select 1 from idiomas.miembros where user_id = v) then
+    perform idiomas_api.eliminar_mi_perfil(p_confirmacion);
+  end if;
+  delete from auth.users where id = v;
+  return jsonb_build_object('ok', true, 'cuenta_eliminada', true);
+end $$;
+revoke all on function idiomas_api.eliminar_mi_cuenta(text) from public, anon;
+grant execute on function idiomas_api.eliminar_mi_cuenta(text) to authenticated;

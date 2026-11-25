@@ -1,9 +1,8 @@
-// Pruebas 4 y 5 del piloto: cada curso conserva su progreso; los datos de una app no quedan
-// expuestos a usuarios de la otra.
+// Pruebas 4 y 5 del piloto: cada curso conserva su progreso; aislamiento del proyecto dedicado.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  pool, admin, como, rpc, rpcServicio, crearUsuarioAuth, nuevoAlumno, leccion, jugarSesion, respuestaCorrecta,
+  pool, admin, como, rpc, crearUsuarioAuth, nuevoAlumno, leccion, jugarSesion, respuestaCorrecta,
   randomUUID, errorDe,
 } from './ayudantes.mjs';
 
@@ -78,66 +77,74 @@ test('4. Cada curso conserva su propio progreso, dominio y repasos', async () =>
 });
 
 // ---------------------------------------------------------------------------------------------
-// Datos de la app existente (Control de Costales) creados como lo haría su propio flujo
+// Aislamiento en el proyecto dedicado: sin membresía no hay acceso, y Puente no tiene conexiones ni
+// credenciales de otras apps.
 // ---------------------------------------------------------------------------------------------
-async function crearAdminCostales(nombre) {
-  const claims = await crearUsuarioAuth(`${nombre}.${randomUUID().slice(0, 6)}@costales.test`);
-  const [org] = await admin(`insert into public.organizaciones (nombre, prefijo_empleado) values ($1, $2) returning id`,
-    [`Org ${nombre} ${randomUUID().slice(0, 4)}`, ('P' + randomUUID().slice(0, 4)).toUpperCase()]);
-  await admin(`insert into public.administradores (id, email, nombre) values ($1, $2, $3)`, [claims.sub, claims.email, nombre]);
-  await admin(`insert into public.asignaciones_rol (administrador_id, rol, organizacion_id) values ($1, 'ADMIN_ORG', $2)`, [claims.sub, org.id]);
-  await admin(`insert into public.tiendas (organizacion_id, codigo, nombre) values ($1, 'T1', 'Tienda uno')`, [org.id]);
-  return { claims, org: org.id };
-}
-
-test('5a. Una cuenta de Control de Costales no tiene acceso a la app de idiomas', async () => {
-  const { claims: costal } = await crearAdminCostales('Iris');
-  // Puede usar su app
-  const orgs = await como(costal, 'select id from public.organizaciones');
-  assert.equal(orgs.length, 1);
-  // …pero ninguna operación de idiomas
+test('5a. Un usuario de Auth sin membresía no puede acceder a los datos del piloto', async () => {
+  const intruso = await crearUsuarioAuth(`intruso.${randomUUID().slice(0, 6)}@ejemplo.test`);
   for (const [fn, args] of [
     ['catalogo', {}], ['inscribirme', { p_curso: 'es-en' }], ['mi_dominio', { p_insc: randomUUID() }],
     ['armar_practica', { p_sesion: randomUUID(), p_insc: randomUUID() }], ['capacidades', {}],
     ['editor_cola', {}], ['eliminar_mi_perfil', { p_confirmacion: 'ELIMINAR' }],
   ]) {
-    assert.equal(await errorDe(rpc(costal, fn, args)), 'no_miembro', fn);
+    assert.equal(await errorDe(rpc(intruso, fn, args)), 'no_miembro', fn);
   }
-  assert.deepEqual(await rpc(costal, 'mi_perfil'), { miembro: false });
-  // Las tablas de idiomas tampoco: RLS devuelve 0 filas aunque existan datos de otros alumnos
+  assert.deepEqual(await rpc(intruso, 'mi_perfil'), { miembro: false });
   const otro = await nuevoAlumno('Jon');
   const i = (await rpc(otro, 'inscribirme', { p_curso: 'es-en' })).inscripcion_id;
   await leccion(otro, i, 'es-en.u1.l1');
   for (const t of ['inscripciones', 'dominio', 'evidencias', 'xp_libro', 'dias_estudio', 'actividad_progreso', 'miembros', 'recomendaciones']) {
-    assert.equal((await como(costal, `select * from idiomas.${t}`)).length, 0, t);
+    assert.equal((await como(intruso, `select * from idiomas.${t}`)).length, 0, t);
+    assert.equal((await como(null, `select 1`)).length, 1);
+    assert.match(await errorDe(como(null, `select * from idiomas.${t}`)), /permission denied/, `anon ${t}`);
   }
-  // Tablas sin permiso alguno (contenido y claves de respuesta)
   for (const t of ['item_claves', 'item_versiones', 'sesiones', 'intentos', 'config', 'codigos_invitacion', 'cola_editorial']) {
-    assert.match(await errorDe(como(costal, `select * from idiomas.${t}`)), /permission denied/, t);
+    assert.match(await errorDe(como(intruso, `select * from idiomas.${t}`)), /permission denied/, t);
   }
+  // Tampoco puede ver la sesión de otro alumno a través de la API
+  assert.equal(await errorDe(rpc(intruso, 'ruta', { p_insc: i })), 'no_miembro');
 });
 
-test('5b. Registrarse en idiomas no concede permisos en Control de Costales', async () => {
-  const { org } = await crearAdminCostales('Kai');
-  const alumno = await nuevoAlumno('Lia');
-  assert.equal((await como(alumno, 'select * from public.organizaciones')).length, 0);
-  assert.equal((await como(alumno, 'select * from public.tiendas')).length, 0);
-  assert.equal((await como(alumno, 'select * from public.administradores')).length, 0);
-  assert.equal((await como(alumno, 'select * from public.asignaciones_rol')).length, 0);
-  assert.deepEqual((await como(alumno, 'select public.mi_contexto() as c'))[0].c, { tipo: 'NINGUNO' });
-  assert.match(await errorDe(como(alumno, `select public.crear_organizacion('Intrusa', 'INT')`)), /Sin permiso/);
-  assert.match(await errorDe(como(alumno, `select public.crear_dispositivo($1, 'x')`, [randomUUID()])), /Sin permiso|no válida|no existe/i);
-  assert.match(await errorDe(como(alumno, `insert into public.organizaciones (nombre, prefijo_empleado) values ('X', 'XX')`)), /row-level security/);
-  assert.equal((await como(alumno, `update public.organizaciones set nombre = 'hack' where id = $1 returning id`, [org])).length, 0);
-  const [n] = await admin('select count(*)::int n from public.administradores where id = $1', [alumno.sub]);
-  assert.equal(n.n, 0, 'unirse a idiomas no crea administrador');
+test('5b. Puente no tiene conexiones, objetos ni credenciales de otras apps', async () => {
+  const { readFileSync, readdirSync, statSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  // Base: nada en public, sin extensiones de conexión externa, funciones sin referencias a public.*
+  const [pub] = await admin(`select count(*)::int n from pg_class c join pg_namespace n on n.oid = c.relnamespace
+                              where n.nspname = 'public' and c.relkind in ('r','v','m','f')`);
+  assert.equal(pub.n, 0, 'sin tablas en public');
+  const ext = await admin(`select extname from pg_extension where extname in ('dblink', 'postgres_fdw', 'http', 'pg_net')`);
+  assert.deepEqual(ext, []);
+  const fdw = await admin('select count(*)::int n from pg_foreign_server');
+  assert.equal(fdw[0].n, 0);
+  const refs = await admin(`select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                             where n.nspname in ('idiomas', 'idiomas_api') and p.prosrc ~* '(public\\.|administradores|dispositivos|costal)'`);
+  assert.deepEqual(refs, []);
+  // Código: ninguna referencia a los otros proyectos ni a sus claves
+  const prohibido = /(zqewhthgmkifspvnlith|grsezvfrkxzurgelyujv|tjlyrgvdqgyafamiwyus|sb_publishable_MMX|costales|asistencia|mobile-chat)/i;
+  const raiz = new URL('..', import.meta.url).pathname;
+  const revisar = (d) => readdirSync(d).flatMap((f) => {
+    const r = join(d, f);
+    if (['node_modules', '.next', 'tests'].includes(f)) return [];
+    return statSync(r).isDirectory() ? revisar(r) : [r];
+  });
+  const malos = revisar(raiz).filter((f) => /\.(ts|tsx|mjs|sql|sh|json|example|md)$/.test(f) && !f.endsWith('README.md') && !f.endsWith('package-lock.json'))
+    .filter((f) => prohibido.test(readFileSync(f, 'utf8')));
+  assert.deepEqual(malos, []);
+  // Configuración del cliente: sin URL remota por defecto (se toma solo de las variables de Puente)
+  const cfg = readFileSync(join(raiz, 'src/lib/config.ts'), 'utf8');
+  assert.doesNotMatch(cfg, /supabase\.co/);
 });
 
 test('5c. Altas: código, cupo, cuentas técnicas y anónimas; anon sin acceso', async () => {
   const sinCodigo = await crearUsuarioAuth(`m.${randomUUID().slice(0, 6)}@ejemplo.test`);
   assert.equal(await errorDe(rpc(sinCodigo, 'unirme', { p_codigo: 'INVENTADO', p_nombre: 'M' })), 'codigo_invalido');
-  const disp = await crearUsuarioAuth(`disp-${randomUUID()}@dispositivos.costales.app`);
-  assert.equal(await errorDe(rpc(disp, 'unirme', { p_codigo: 'PILOTO-LOCAL', p_nombre: 'Disp' })), 'cuenta_no_permitida');
+  await admin(`update idiomas.config set valor = '["bloqueado.test"]' where clave = 'dominios_correo_bloqueados'`);
+  try {
+    const tecnica = await crearUsuarioAuth(`bot-${randomUUID().slice(0, 6)}@bloqueado.test`);
+    assert.equal(await errorDe(rpc(tecnica, 'unirme', { p_codigo: 'PILOTO-LOCAL', p_nombre: 'Bot' })), 'cuenta_no_permitida');
+  } finally {
+    await admin(`update idiomas.config set valor = '[]' where clave = 'dominios_correo_bloqueados'`);
+  }
   const anonimo = await crearUsuarioAuth(null, { is_anonymous: true });
   assert.equal(await errorDe(rpc(anonimo, 'unirme', { p_codigo: 'PILOTO-LOCAL', p_nombre: 'A' })), 'cuenta_anonima_no_permitida');
   assert.match(await errorDe(rpc(null, 'catalogo')), /permission denied/);
@@ -172,44 +179,37 @@ test('5d. Las claves de respuesta nunca llegan al cliente', async () => {
   assert.equal(await errorDe(rpc(q, 'ruta', { p_insc: i })), 'inscripcion_no_existe');
 });
 
-test('5e. Eliminar el perfil de idiomas borra solo datos de idiomas y conserva la cuenta compartida', async () => {
-  // Persona con cuenta en Control de Costales que además se une a idiomas
-  const { claims: ramon, org } = await crearAdminCostales('Ramon');
-  await rpc(ramon, 'unirme', { p_codigo: 'PILOTO-LOCAL', p_nombre: 'Ramón' });
+test('5e. Eliminar la cuenta borra los datos de Puente y el usuario de Auth, sin tocar a otros', async () => {
+  const ramon = await nuevoAlumno('Ramon');
   const i = (await rpc(ramon, 'inscribirme', { p_curso: 'es-en' })).inscripcion_id;
   await leccion(ramon, i, 'es-en.u1.l1');
-  // Alumna que solo usa idiomas
   const sara = await nuevoAlumno('Sara');
   const is = (await rpc(sara, 'inscribirme', { p_curso: 'es-en' })).inscripcion_id;
   await leccion(sara, is, 'es-en.u1.l1');
+  const antesSara = await rpc(sara, 'ruta', { p_insc: is });
 
   // Las funciones de servicio no son accesibles desde el cliente
-  assert.match(await errorDe(rpc(ramon, 'servicio_estado_usuario', { p_user: ramon.sub })), /permission denied/);
+  assert.match(await errorDe(rpc(ramon, 'servicio_validar_alta', { p_codigo: 'X' })), /permission denied/);
+  assert.match(await errorDe(rpc(null, 'eliminar_mi_cuenta', { p_confirmacion: 'ELIMINAR' })), /permission denied/);
+  assert.equal(await errorDe(rpc(ramon, 'eliminar_mi_cuenta', { p_confirmacion: 'no' })), 'confirmacion_requerida');
 
-  await rpc(ramon, 'eliminar_mi_perfil', { p_confirmacion: 'ELIMINAR' });
+  await rpc(ramon, 'eliminar_mi_cuenta', { p_confirmacion: 'ELIMINAR' });
+  const [r] = await admin(`select
+      (select count(*) from idiomas.miembros where user_id = $1) +
+      (select count(*) from idiomas.inscripciones where user_id = $1) +
+      (select count(*) from idiomas.sesiones where user_id = $1) +
+      (select count(*) from idiomas.intentos where user_id = $1) +
+      (select count(*) from idiomas.evidencias where user_id = $1) +
+      (select count(*) from idiomas.dominio where user_id = $1) +
+      (select count(*) from idiomas.xp_libro where user_id = $1) +
+      (select count(*) from idiomas.recomendaciones where user_id = $1) +
+      (select count(*) from auth.users where id = $1) as total`, [ramon.sub]);
+  assert.equal(Number(r.total), 0);
+  // Sara no se ve afectada
+  assert.deepEqual(await rpc(sara, 'ruta', { p_insc: is }), antesSara);
+  // eliminar_mi_perfil (solo datos) mantiene el usuario de Auth
   await rpc(sara, 'eliminar_mi_perfil', { p_confirmacion: 'ELIMINAR' });
-
-  for (const u of [ramon.sub, sara.sub]) {
-    const [r] = await admin(`select
-        (select count(*) from idiomas.miembros where user_id = $1) +
-        (select count(*) from idiomas.inscripciones where user_id = $1) +
-        (select count(*) from idiomas.sesiones where user_id = $1) +
-        (select count(*) from idiomas.intentos where user_id = $1) +
-        (select count(*) from idiomas.evidencias where user_id = $1) +
-        (select count(*) from idiomas.dominio where user_id = $1) +
-        (select count(*) from idiomas.xp_libro where user_id = $1) +
-        (select count(*) from idiomas.recomendaciones where user_id = $1) as total`, [u]);
-    assert.equal(Number(r.total), 0);
-  }
-  // Ramón: conserva Auth y todo en Control de Costales
-  const eR = await rpcServicio('servicio_estado_usuario', { p_user: ramon.sub });
-  assert.deepEqual(eR, { miembro_idiomas: false, otra_app: true, puede_borrar_auth: false });
-  assert.equal((await como(ramon, 'select id from public.organizaciones where id = $1', [org])).length, 1);
-  assert.equal((await como(ramon, 'select public.mi_contexto() as c'))[0].c.tipo, 'ADMIN');
-  // Sara: solo usaba idiomas → el servidor puede borrar su usuario de Auth
-  const eS = await rpcServicio('servicio_estado_usuario', { p_user: sara.sub });
-  assert.deepEqual(eS, { miembro_idiomas: false, otra_app: false, puede_borrar_auth: true });
-  // Tras borrar el perfil ya no tiene acceso
+  assert.equal((await admin('select count(*)::int n from auth.users where id = $1', [sara.sub]))[0].n, 1);
   assert.equal(await errorDe(rpc(sara, 'catalogo')), 'no_miembro');
 });
 
@@ -217,13 +217,13 @@ test('5f. Almacenamiento: el bucket de idiomas es privado y solo editores suben'
   const [b] = await admin(`select public, file_size_limit from storage.buckets where id = 'idiomas-medios'`);
   assert.equal(b.public, false);
   assert.equal(Number(b.file_size_limit), 1048576);
-  const { claims: costal } = await crearAdminCostales('Tere');
+  const sinMembresia = await crearUsuarioAuth(`sin.${randomUUID().slice(0, 6)}@ejemplo.test`); // sin membresía
   const alumno = await nuevoAlumno('Uma');
   const editor = await nuevoAlumno('Vero', 'EDITOR-LOCAL');
   await admin(`insert into storage.objects (bucket_id, name) values ('idiomas-medios', 'es-en/u1/audio.mp3')`);
-  assert.equal((await como(costal, `select * from storage.objects where bucket_id = 'idiomas-medios'`)).length, 0);
+  assert.equal((await como(sinMembresia, `select * from storage.objects where bucket_id = 'idiomas-medios'`)).length, 0);
   assert.ok((await como(alumno, `select * from storage.objects where bucket_id = 'idiomas-medios'`)).length >= 1);
   assert.match(await errorDe(como(alumno, `insert into storage.objects (bucket_id, name) values ('idiomas-medios', 'x.mp3')`)), /row-level security/);
-  assert.match(await errorDe(como(costal, `insert into storage.objects (bucket_id, name) values ('idiomas-medios', 'x.mp3')`)), /row-level security/);
+  assert.match(await errorDe(como(sinMembresia, `insert into storage.objects (bucket_id, name) values ('idiomas-medios', 'x.mp3')`)), /row-level security/);
   await como(editor, `insert into storage.objects (bucket_id, name) values ('idiomas-medios', 'es-en/u1/nuevo.mp3')`);
 });

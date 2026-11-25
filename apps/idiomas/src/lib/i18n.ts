@@ -24,7 +24,7 @@ const es: Diccionario = {
   'perfil.titulo': 'Perfil y ajustes', 'perfil.interfaz': 'Idioma de la interfaz', 'perfil.zona': 'Zona horaria',
   'perfil.consent': 'Permitir guardar mi respuesta cuando reporto un ejercicio',
   'perfil.eliminar_curso': 'Eliminar el avance de este curso', 'perfil.eliminar_perfil': 'Eliminar mi perfil de idiomas',
-  'perfil.eliminar_aviso': 'Se borrarán tus cursos, avances, repasos y XP de esta app. Si usas tu cuenta en otra app del mismo servicio, esa cuenta se conserva.',
+  'perfil.eliminar_aviso': 'Se borrarán tu cuenta y todos tus cursos, avances, repasos y XP. No se puede deshacer.',
   'ia.desactivada': 'La conversación con IA no está disponible en el piloto.',
 };
 const esGT: Diccionario = {};

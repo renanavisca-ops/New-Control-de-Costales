@@ -37,7 +37,7 @@ function Unirme() {
   return (
     <form className="tarjeta pila" onSubmit={enviar}>
       <h1>Únete al piloto de idiomas</h1>
-      <p className="suave">Tu cuenta existe, pero aún no participa en la app de idiomas. Necesitas un código de invitación. Unirte no cambia nada en otras apps.</p>
+      <p className="suave">Tu cuenta existe, pero aún no participa en el piloto. Necesitas un código de invitación.</p>
       <label className="campo"><span>Tu nombre</span><input type="text" value={nombre} onChange={(e) => setNombre(e.target.value)} required maxLength={60} /></label>
       <label className="campo"><span>Código de invitación</span><input type="text" value={codigo} onChange={(e) => setCodigo(e.target.value)} required autoCapitalize="characters" /></label>
       {error && <p className="error" role="alert">{error}</p>}

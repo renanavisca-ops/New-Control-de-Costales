@@ -50,7 +50,7 @@ export function useApp() {
 export function mensajeError(e: unknown): string {
   const m = (e as { message?: string })?.message || String(e);
   const mapa: Record<string, string> = {
-    no_miembro: 'Tu cuenta todavía no forma parte de la app de idiomas.',
+    no_miembro: 'Tu cuenta todavía no forma parte del piloto de Puente.',
     codigo_invalido: 'El código de invitación no es válido o ya se usó.',
     cupo_lleno: 'El piloto ya alcanzó su cupo de participantes.',
     inscripciones_cerradas: 'Las inscripciones están cerradas por ahora.',

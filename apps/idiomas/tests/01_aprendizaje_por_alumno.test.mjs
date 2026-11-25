@@ -166,7 +166,7 @@ test('3. Reenviar una sesión completada sin conexión no duplica avance ni reco
   assert.equal(r3.recibos[1].estado, 'duplicado');
   assert.deepEqual(await foto(), antes);
 
-  // Dos dispositivos con sesiones distintas de la misma actividad: cada sesión da su XP base,
+  // Dos equipos del mismo alumno con sesiones distintas de la misma actividad: cada sesión da su XP base,
   // pero la recompensa de primera completitud se da una sola vez.
   const otra = await rpc(fer, 'iniciar_leccion', { p_sesion: randomUUID(), p_insc: insc, p_actividad: L(1) });
   const { cierre: c2 } = await jugarSesion(fer, otra);

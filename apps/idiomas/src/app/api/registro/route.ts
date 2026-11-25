@@ -1,6 +1,6 @@
 // Alta de una cuenta NUEVA del piloto. Corre en servidor con la clave de servicio (privada).
 // 1) valida código y cupo, 2) crea el usuario en Auth. La pertenencia a idiomas la crea luego el
-// propio usuario con idiomas_api.unirme (que vuelve a validar todo). No toca la otra app.
+// propio usuario con idiomas_api.unirme (que vuelve a validar todo).
 import { NextResponse } from 'next/server';
 import { supabaseServicio } from '@/lib/supabase/servicio';
 
@@ -32,7 +32,6 @@ export async function POST(req: Request) {
   const { error } = await sb.auth.admin.createUser({
     email, password, email_confirm: true,
     user_metadata: { nombre },
-    // Sin app_metadata de roles: una cuenta de idiomas no tiene ningún permiso en otras apps.
   });
   if (error) {
     const existe = /already|registered|exists/i.test(error.message);

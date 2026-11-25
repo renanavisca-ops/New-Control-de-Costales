@@ -36,9 +36,7 @@ function Perfil() {
     const r = await fetch('/api/eliminar-perfil', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ confirmacion: confirmar }) });
     const j = await r.json();
     if (!j.ok) { setMsg(j.error === 'confirmacion_requerida' ? 'Escribe ELIMINAR para confirmar.' : 'No se pudo eliminar.'); return; }
-    alert(j.cuenta_compartida_conservada
-      ? 'Tus datos de idiomas se eliminaron. Tu cuenta se conserva porque también la usas en otra app.'
-      : 'Tus datos de idiomas y tu cuenta se eliminaron.');
+    alert('Tu cuenta y todos tus datos de Puente se eliminaron.');
     location.href = '/';
   };
 

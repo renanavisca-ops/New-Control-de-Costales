@@ -1,12 +1,11 @@
 -- =================================================================================================
--- App de idiomas · Migración 1: base (ADITIVA; no modifica nada de Control de Costales)
+-- Puente · Migración 1: base. Pensada para un proyecto Supabase DEDICADO a Puente.
 --
 -- · Esquemas propios:  idiomas      → datos (no expuesto por la API)
 --                      idiomas_api  → únicas operaciones invocables desde el cliente (RPC)
 -- · Rol propietario:   idiomas_propietario (NOLOGIN). Es dueño de tablas y funciones de idiomas y
---                      NO tiene privilegios sobre public ni sobre las tablas de Control de Costales.
---                      Las funciones SECURITY DEFINER corren con este rol, así que un error en una
---                      función de idiomas no puede leer ni escribir datos de la otra app.
+--                      NO tiene privilegios sobre public, auth ni storage. Las funciones SECURITY
+--                      DEFINER corren con este rol (mínimo privilegio).
 -- · Pertenencia:       idiomas.miembros. Tener usuario en Auth NO da acceso: todas las operaciones y
 --                      políticas exigen una fila activa en miembros.
 -- =================================================================================================
@@ -46,7 +45,7 @@ insert into idiomas.config (clave, valor, descripcion) values
   ('inscripciones_abiertas', 'true', 'Permite nuevas altas de miembros'),
   ('requiere_codigo_invitacion', 'true', 'Las altas necesitan un código de invitación del piloto'),
   ('max_miembros', '50', 'Tope de miembros activos del piloto'),
-  ('dominios_correo_bloqueados', '["dispositivos.costales.app"]', 'Cuentas técnicas de otras apps que no pueden unirse'),
+  ('dominios_correo_bloqueados', '[]', 'Dominios de correo que no pueden unirse (p. ej. cuentas técnicas)'),
   ('max_sesiones_dia', '40', 'Sesiones (lección o repaso) por alumno y día'),
   ('max_intentos_sesion', '80', 'Respuestas por sesión (incluye reintentos)'),
   ('max_reintentos_item', '2', 'Veces que un ítem fallado vuelve a aparecer en la misma sesión'),

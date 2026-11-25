@@ -578,7 +578,7 @@ begin
   return jsonb_build_object('ok', true, 'respuesta_guardada', coalesce(v_consent, false) and p_respuesta is not null);
 end $$;
 
--- Borra TODOS los datos de idiomas de quien llama (no toca Auth ni otras apps).
+-- Borra TODOS los datos de Puente de quien llama (no toca Auth; ver eliminar_mi_cuenta).
 create or replace function idiomas_api.eliminar_mi_perfil(p_confirmacion text) returns jsonb
 language plpgsql security definer set search_path = '' as $$
 declare v uuid := idiomas.exigir_miembro();

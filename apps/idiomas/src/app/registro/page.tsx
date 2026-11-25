@@ -37,7 +37,7 @@ export default function Registro() {
     <Marco>
       <form className="tarjeta pila" onSubmit={enviar}>
         <h1>Crear cuenta</h1>
-        <p className="suave peq">El piloto es por invitación. Tu cuenta solo da acceso a la app de idiomas.</p>
+        <p className="suave peq">El piloto es por invitación. Necesitas un código de invitación.</p>
         <label className="campo"><span>Nombre</span><input type="text" value={f.nombre} onChange={set('nombre')} required maxLength={60} /></label>
         <label className="campo"><span>Correo</span><input type="email" autoComplete="email" value={f.email} onChange={set('email')} required /></label>
         <label className="campo"><span>Contraseña (mínimo 8)</span><input type="password" autoComplete="new-password" minLength={8} value={f.password} onChange={set('password')} required /></label>
@@ -45,7 +45,7 @@ export default function Registro() {
         <input type="text" name="sitio_web" value={f.sitio_web} onChange={set('sitio_web')} tabIndex={-1} autoComplete="off" className="solo-lector" aria-hidden />
         {error && <p className="error" role="alert">{error}</p>}
         <button className="boton ancho" disabled={enviando}>{enviando ? 'Creando…' : 'Crear cuenta'}</button>
-        <p className="suave peq">¿Ya tienes una cuenta (incluso de otra app del mismo servicio)? <Link href="/entrar">Entra</Link> y únete con tu código.</p>
+        <p className="suave peq">¿Ya tienes una cuenta? <Link href="/entrar">Entra</Link>.</p>
       </form>
     </Marco>
   );

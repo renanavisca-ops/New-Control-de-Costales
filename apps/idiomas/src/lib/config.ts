@@ -4,5 +4,5 @@ export const SUPABASE_URL = process.env.NEXT_PUBLIC_IDIOMAS_SUPABASE_URL || 'htt
 export const SUPABASE_KEY = process.env.NEXT_PUBLIC_IDIOMAS_SUPABASE_PUBLISHABLE_KEY || 'clave-publica-local';
 /** Esquema expuesto con las únicas operaciones que puede llamar el cliente. */
 export const ESQUEMA_API = 'idiomas_api';
-/** Prefijo propio de cookies: la sesión de esta app no se mezcla con la de Control de Costales. */
+/** Prefijo propio de cookies: nombre de cookie exclusivo de Puente. */
 export const COOKIE_SESION = 'sb-idiomas-auth';
