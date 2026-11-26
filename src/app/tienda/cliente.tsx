@@ -56,7 +56,8 @@ export default function TiendaCliente({
     };
   }, [sesion]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const abrir = (v: Vista) => (v === 'STOCK' ? setVista('STOCK') : setPendiente(v));
+  // Stock y Producción se abren sin PIN: en Producción cada persona se identifica al iniciar su costal
+  const abrir = (v: Vista) => (v === 'STOCK' || v === 'PRODUCCION' ? setVista(v) : setPendiente(v));
   const terminar = () => {
     setSesion(null);
     setVista('INICIO');
@@ -88,7 +89,7 @@ export default function TiendaCliente({
 
       <IndicadorSync sinc={sinc} />
 
-      {sesion && vista !== 'INICIO' && (
+      {sesion && vista !== 'INICIO' && vista !== 'PRODUCCION' && vista !== 'STOCK' && (
         <div className="mb-4 rounded-2xl bg-indigo-50 px-4 py-2 text-sm font-bold text-indigo-800">
           {sesion.empleado.nombre} <span className="font-mono text-indigo-500">({sesion.empleado.codigo})</span>
         </div>
@@ -132,7 +133,9 @@ export default function TiendaCliente({
         </div>
       )}
 
-      {vista === 'PRODUCCION' && sesion && <Produccion sesion={sesion} sinc={sinc} />}
+      {vista === 'PRODUCCION' && (
+        <Produccion sesion={sesion} sinc={sinc} dispositivoId={dispositivo.id} onPersona={(s) => { setSesion(s); ultimaActividad.current = Date.now(); }} />
+      )}
       {(vista === 'RECIBIR' || vista === 'INICIAL') && sesion && <Recepcion sesion={sesion} inicial={vista === 'INICIAL'} sinc={sinc} />}
       {vista === 'RETORNO' && sesion && <Retorno sesion={sesion} sinc={sinc} tiendaCodigo={tienda.codigo} />}
       {vista === 'INVENTARIO' && sesion && <Inventario sesion={sesion} sinc={sinc} />}
@@ -304,15 +307,26 @@ function Actividad({ sesion, sinc, desde }: { sesion: Sesion; sinc: Sinc; desde:
   );
 }
 
-function Produccion({ sesion, sinc }: { sesion: Sesion; sinc: Sinc }) {
+function Produccion({ sesion, sinc, dispositivoId, onPersona }: { sesion: Sesion | null; sinc: Sinc; dispositivoId: string; onPersona: (s: Sesion) => void }) {
   const [desde] = useState(() => new Date().toISOString());
   const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
   const [finalizando, setFinalizando] = useState<EnProceso | null>(null);
   const [piezas, setPiezas] = useState('');
-  const mios = sinc.datos.en_proceso.filter((p) => p.empleado_id === sesion.empleado.id);
-  const otros = sinc.datos.en_proceso.filter((p) => p.empleado_id !== sesion.empleado.id);
+  const [pidiendo, setPidiendo] = useState<null | 'PERSONA' | 'FINALIZAR'>(null);
+  const enProceso = sinc.datos.en_proceso;
+  const delActual = sesion ? enProceso.find((p) => p.empleado_id === sesion.empleado.id) : undefined;
+
+  /** Sesión guardada en este celular para un empleado (la que usó al iniciar), para finalizar sin volver a pedir PIN. */
+  const sesionDe = (empleadoId: string): Sesion | null => {
+    if (sesion?.empleado.id === empleadoId) return sesion;
+    const cred = Object.values(sinc.tienda.credenciales()).find((c) => c.empleado.id === empleadoId && new Date(c.expira) > new Date());
+    return cred ? { token: cred.token, empleado: cred.empleado } : null;
+  };
 
   const iniciar = (codigo: string) => {
+    if (!sesion) return setPidiendo('PERSONA');
+    if (delActual)
+      return setAviso({ ok: false, texto: `${sesion.empleado.nombre} ya tiene el costal ${delActual.codigo} en proceso. Finalízalo antes de iniciar otro.` });
     const local = sinc.datos.costales.find((c) => c.codigo === codigo);
     if (local?.estado === 'EN_PRODUCCION') return setAviso({ ok: false, texto: `El costal ${codigo} ya está en producción.` });
     if (local?.estado === 'EN_TRANSITO') return setAviso({ ok: false, texto: `El costal ${codigo} aún no ha sido recibido.` });
@@ -322,66 +336,99 @@ function Produccion({ sesion, sinc }: { sesion: Sesion; sinc: Sinc }) {
     sinc.agregar(crearOp(sesion, 'INICIAR', { codigo }), local?.producto ?? null);
     setAviso({
       ok: true,
-      texto: local ? `Costal ${codigo} iniciado.` : `Costal ${codigo} iniciado sin conexión; se validará al sincronizar.`,
+      texto: local ? `${sesion.empleado.nombre} inició el costal ${codigo}.` : `Costal ${codigo} iniciado sin conexión; se validará al sincronizar.`,
     });
   };
 
-  const finalizar = () => {
+  const guardarFinal = (quien: Sesion) => {
     if (!finalizando) return;
     const n = Number(piezas);
     if (!Number.isInteger(n) || n < 0) return;
-    sinc.agregar(crearOp(sesion, 'FINALIZAR', { codigo: finalizando.codigo, piezas: n }), finalizando.producto);
-    setAviso({ ok: true, texto: `Costal ${finalizando.codigo} finalizado con ${n} piezas.` });
+    sinc.agregar(crearOp(quien, 'FINALIZAR', { codigo: finalizando.codigo, piezas: n }), finalizando.producto);
+    setAviso({ ok: true, texto: `Costal ${finalizando.codigo} de ${finalizando.empleado} finalizado con ${n} piezas.` });
     setFinalizando(null);
     setPiezas('');
   };
 
-  const Fila = ({ p, propio }: { p: EnProceso; propio: boolean }) => (
-    <div className={`flex items-center justify-between rounded-2xl px-3 py-3 ${propio ? 'bg-orange-50' : 'bg-gray-50'}`}>
-      <div>
-        <p className="font-mono font-black">{p.codigo}</p>
-        <p className="text-xs text-gray-500">
-          {p.producto ?? '—'} · {propio ? `hace ${minutosDesde(p.iniciado_at)}` : p.empleado}
-        </p>
-      </div>
-      <Boton variante={propio ? 'primario' : 'suave'} className={propio ? '' : 'px-3 py-2 text-xs'} onClick={() => { setFinalizando(p); setPiezas(''); }}>
-        Finalizar
-      </Boton>
-    </div>
-  );
+  const finalizar = () => {
+    if (!finalizando) return;
+    const quien = sesionDe(finalizando.empleado_id);
+    if (quien) return guardarFinal(quien);
+    setPidiendo('FINALIZAR'); // se inició en otro celular o la sesión venció: alguien confirma con su código
+  };
 
   return (
     <div className="space-y-4">
-      <section className="rounded-3xl bg-white p-5 shadow-sm">
-        <p className="mb-3 text-lg font-black">Iniciar costal</p>
-        <Escaner onCodigo={iniciar} deshabilitado={!!finalizando} textoAyuda="Escanea el costal a abrir" />
-        {aviso && <div className="mt-3"><Aviso tipo={aviso.ok ? 'exito' : 'error'}>{aviso.texto}</Aviso></div>}
-      </section>
-
-      <section className="rounded-3xl bg-white p-5 shadow-sm">
-        <p className="mb-3 text-lg font-black">Mis costales en proceso ({mios.length})</p>
-        {mios.length === 0 && <p className="text-sm text-gray-400">No tienes costales en proceso.</p>}
-        <div className="space-y-2">{mios.map((p) => <Fila key={p.codigo} p={p} propio />)}</div>
-        {otros.length > 0 && (
-          <details className="mt-4">
-            <summary className="cursor-pointer text-xs font-bold uppercase text-gray-400">Costales de otros compañeros ({otros.length})</summary>
-            <div className="mt-2 space-y-2">{otros.map((p) => <Fila key={p.codigo} p={p} propio={false} />)}</div>
-          </details>
+      <section className="space-y-3 rounded-3xl bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-lg font-black">Iniciar costal</p>
+          <button onClick={() => setPidiendo('PERSONA')} className="rounded-full bg-indigo-50 px-3 py-1.5 text-xs font-black text-indigo-700">
+            {sesion ? 'Soy otra persona' : 'Ingresar con mi código'}
+          </button>
+        </div>
+        {sesion ? (
+          <p className="rounded-2xl bg-indigo-50 px-4 py-2 text-sm font-bold text-indigo-800">
+            Produce: {sesion.empleado.nombre} <span className="font-mono text-indigo-500">({sesion.empleado.codigo})</span>
+            {delActual && <span className="block text-xs font-semibold text-orange-700">Tiene en proceso {delActual.codigo}: finalízalo para iniciar otro.</span>}
+          </p>
+        ) : (
+          <p className="text-sm text-gray-500">Para iniciar un costal, primero ingresa con tu código y PIN.</p>
         )}
+        <Escaner onCodigo={iniciar} deshabilitado={!!finalizando || !sesion} textoAyuda="Escanea el costal a abrir" />
+        {aviso && <Aviso tipo={aviso.ok ? 'exito' : 'error'}>{aviso.texto}</Aviso>}
       </section>
 
-      <Actividad sesion={sesion} sinc={sinc} desde={desde} />
+      <section className="rounded-3xl bg-white p-5 shadow-sm">
+        <p className="mb-1 text-lg font-black">En producción ({enProceso.length})</p>
+        <p className="mb-3 text-xs text-gray-500">Cada persona prepara un costal a la vez. Para terminar, toca Finalizar en su costal y anota las piezas.</p>
+        {enProceso.length === 0 && <p className="text-sm text-gray-400">Nadie está produciendo en este momento.</p>}
+        <div className="space-y-2">
+          {enProceso.map((p) => {
+            const actual = p.empleado_id === sesion?.empleado.id;
+            return (
+              <div key={p.codigo} className={`flex items-center justify-between gap-3 rounded-2xl px-3 py-3 ${actual ? 'bg-orange-50' : 'bg-gray-50'}`}>
+                <div>
+                  <p className="font-black">{p.empleado}</p>
+                  <p className="text-xs text-gray-500">
+                    <span className="font-mono font-bold">{p.codigo}</span> · {p.producto ?? '—'} · hace {minutosDesde(p.iniciado_at)}
+                  </p>
+                </div>
+                <Boton onClick={() => { setFinalizando(p); setPiezas(''); }}>Finalizar</Boton>
+              </div>
+            );
+          })}
+        </div>
+      </section>
 
-      {finalizando && (
+      {sesion && <Actividad sesion={sesion} sinc={sinc} desde={desde} />}
+
+      {finalizando && !pidiendo && (
         <Modal titulo={`Finalizar ${finalizando.codigo}`} onCerrar={() => setFinalizando(null)}>
           <p className="text-sm text-gray-500">
-            {finalizando.producto ?? ''} {finalizando.empleado_id !== sesion.empleado.id && `· iniciado por ${finalizando.empleado}`}
+            {finalizando.empleado} · {finalizando.producto ?? ''}
           </p>
           <Campo etiqueta="Piezas preparadas">
             <Entrada inputMode="numeric" value={piezas} onChange={(e) => setPiezas(e.target.value.replace(/\D/g, ''))} placeholder="0" className="text-center text-4xl font-black" autoFocus />
           </Campo>
           <Boton className="w-full py-4" disabled={piezas === ''} onClick={finalizar}>Guardar y finalizar</Boton>
         </Modal>
+      )}
+
+      {pidiendo && (
+        <Ingreso
+          dispositivoId={dispositivoId}
+          sinc={sinc}
+          onCerrar={() => setPidiendo(null)}
+          onOk={(s) => {
+            const motivo = pidiendo;
+            setPidiendo(null);
+            if (motivo === 'FINALIZAR') guardarFinal(s);
+            else {
+              onPersona(s);
+              setAviso(null);
+            }
+          }}
+        />
       )}
     </div>
   );
@@ -435,6 +482,8 @@ function Recepcion({ sesion, inicial, sinc }: { sesion: Sesion; inicial: boolean
         {aviso && <Aviso tipo={aviso.ok ? 'exito' : 'error'}>{aviso.texto}</Aviso>}
       </section>
 
+      {!inicial && <PorRecibir sinc={sinc} />}
+
       <Actividad sesion={sesion} sinc={sinc} desde={desde} />
 
       {pidiendo && (
@@ -451,6 +500,31 @@ function Recepcion({ sesion, inicial, sinc }: { sesion: Sesion; inicial: boolean
         </Modal>
       )}
     </div>
+  );
+}
+
+/** Costales enviados por el centro que la tienda todavía no ha escaneado. */
+function PorRecibir({ sinc }: { sinc: Sinc }) {
+  const faltan = sinc.datos.costales.filter((c) => c.estado === 'EN_TRANSITO');
+  return (
+    <section className={`rounded-3xl p-5 shadow-sm ${faltan.length ? 'bg-amber-50' : 'bg-green-50'}`}>
+      {faltan.length === 0 ? (
+        <p className="text-sm font-black text-green-800">✓ No hay costales pendientes: ya escaneaste todo lo que envió el centro.</p>
+      ) : (
+        <>
+          <p className="mb-2 text-sm font-black text-amber-900">⚠ Faltan por escanear: {faltan.length} costales enviados por el centro</p>
+          <p className="mb-2 text-xs text-amber-800">Si alguno no llegó, avisa a tu supervisor. Si la etiqueta no se lee, escribe el código y pulsa OK.</p>
+          <div className="grid max-h-60 grid-cols-1 gap-1 overflow-y-auto sm:grid-cols-2">
+            {faltan.map((c) => (
+              <div key={c.codigo} className="flex justify-between rounded-xl bg-white px-3 py-1.5 text-xs">
+                <span className="font-mono font-bold">{c.codigo}</span>
+                <span className="text-gray-500">{c.producto ?? ''}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </section>
   );
 }
 

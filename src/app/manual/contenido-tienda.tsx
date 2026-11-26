@@ -74,6 +74,10 @@ export function ManualTienda() {
           <Figura img="t-recibir" pie="Pantalla para recibir" movil />
           <Figura img="t-recibir-leido" pie="Costales recibidos y tu actividad" movil />
         </Par>
+        <p>
+          Debajo aparece la lista <B>Faltan por escanear</B> con los costales que el centro envió y todavía no se han escaneado. Cuando ya no
+          falta ninguno, dice que recibiste todo.
+        </p>
         <Nota tipo="aviso">
           Los costales que no se escaneen quedan como <B>faltantes</B> del traslado y el administrador los ve con su valor en quetzales. Escanea
           todos, aunque sean muchos.
@@ -84,17 +88,22 @@ export function ManualTienda() {
         </p>
       </Seccion>
 
-      <Seccion id="produccion" titulo="5. Producción: abrir y terminar un costal">
-        <p>Cada vez que alguien abre un costal para sacar la ropa, debe registrarlo. Varias personas pueden tener costales abiertos a la vez.</p>
+      <Seccion id="produccion" titulo="5. Producción: varias personas a la vez">
+        <p>
+          Cuando se prepara ciclo, varias personas producen al mismo tiempo en el mismo celular. Cada persona trabaja <B>un costal a la
+          vez</B>: no puede iniciar otro hasta finalizar el que tiene abierto.
+        </p>
         <Sub>Iniciar (al abrir el costal)</Sub>
         <Pasos>
-          <li>Toca <B>Producción</B> y entra con tu código y PIN.</li>
-          <li>Escanea el costal que vas a abrir. Aparece <B>&quot;Costal … iniciado&quot;</B> y queda en <B>Mis costales en proceso</B>.</li>
+          <li>Toca <B>Producción</B>. No pide PIN para entrar.</li>
+          <li>La primera vez, pulsa <B>Ingresar con mi código</B> y escribe tu código y PIN. Si sigues tú, ya no lo vuelve a pedir.</li>
+          <li>Escanea el costal que vas a abrir (o escribe el código y pulsa OK).</li>
+          <li>Si le toca a otra persona, pulsa <B>Soy otra persona</B> y que ponga su código y PIN.</li>
         </Pasos>
         <Sub>Finalizar (al terminar de sacar las piezas)</Sub>
         <Pasos>
-          <li>En <B>Mis costales en proceso</B>, toca <B>Finalizar</B> en el costal.</li>
-          <li>Escribe cuántas <B>piezas preparadas</B> salieron y pulsa <B>Guardar y finalizar</B>.</li>
+          <li>En <B>En producción</B> aparecen todos los costales abiertos con el nombre de quien lo abrió.</li>
+          <li>Toca <B>Finalizar</B> en tu costal, escribe las <B>piezas preparadas</B> y pulsa <B>Guardar y finalizar</B>. No pide código.</li>
         </Pasos>
         <Par>
           <Figura img="t-produccion-iniciado" pie="Costal iniciado y en proceso" movil />
