@@ -340,7 +340,7 @@ export default function TrasladosCliente({ roles, soloLectura, centro }: { roles
             <>
               <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
                 <Dato e="Fecha" v={carga.t.fecha ? new Date(carga.t.fecha + 'T12:00:00').toLocaleDateString() : '—'} />
-                <Dato e="Bodega de entrada" v={carga.t.bodegaEntrada || '—'} />
+                <Dato e="Bodega de entrada" v={`${carga.t.bodegaEntrada || '—'}${carga.t.documento ? ` · ${carga.t.documento}` : ''}`} />
                 <Dato e="Costales" v={String(carga.t.costales.length)} />
                 <Dato e="Piezas" v={n(carga.t.costales.reduce((s, k) => s + k.piezas, 0))} />
               </div>
