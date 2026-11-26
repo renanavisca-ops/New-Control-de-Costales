@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { supabaseNavegador } from '@/lib/supabase/client';
-import Escaner from '@/components/escaner';
+import Escaner, { codigoValido } from '@/components/escaner';
 import { Aviso, Boton, Campo, Entrada, Modal, Selector } from '@/components/ui';
 import { nuevoId, type Categoria, type EnProceso, type Operacion, type TipoOp } from '@/lib/offline/almacen';
 import { verificadorPin } from '@/lib/offline/pin';
@@ -436,8 +436,7 @@ function Produccion({ sesion, sinc, dispositivoId, onPersona }: { sesion: Sesion
 
 function Recepcion({ sesion, inicial, sinc }: { sesion: Sesion; inicial: boolean; sinc: Sinc }) {
   const [desde] = useState(() => new Date().toISOString());
-  const [categoria, setCategoria] = useState('');
-  const [piezas, setPiezas] = useState('');
+  const [ultimaCat, setUltimaCat] = useState('');
   const [pidiendo, setPidiendo] = useState<string | null>(null);
   const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
   const categorias: Categoria[] = sinc.datos.categorias;
@@ -448,7 +447,7 @@ function Recepcion({ sesion, inicial, sinc }: { sesion: Sesion; inicial: boolean
       crearOp(sesion, 'RECIBIR', { codigo, categoria_id: cat, piezas: pz ? Number(pz) : null, inicial, producto: cat ? nombreCat(cat) : null }),
       cat ? nombreCat(cat) : null,
     );
-    setAviso({ ok: true, texto: `Costal ${codigo} ${inicial ? 'registrado' : 'recibido'}.` });
+    setAviso({ ok: true, texto: `Costal ${codigo} ${inicial ? 'registrado' : 'recibido'}${cat ? ` como ${nombreCat(cat)}` : ''}.` });
   };
 
   const alEscanear = (codigo: string) => {
@@ -456,8 +455,8 @@ function Recepcion({ sesion, inicial, sinc }: { sesion: Sesion; inicial: boolean
     if (local?.estado === 'EN_TIENDA') return setAviso({ ok: true, texto: `El costal ${codigo} ya está en stock.` });
     if (local?.estado === 'EN_PRODUCCION') return setAviso({ ok: false, texto: `El costal ${codigo} está en producción.` });
     if (local?.estado === 'EN_TRANSITO') return registrar(codigo, null, '');
-    if (!categoria) return setPidiendo(codigo);
-    registrar(codigo, categoria, piezas);
+    // costal nuevo: siempre se confirma código, producto y piezas contra la etiqueta
+    setPidiendo(codigo);
   };
 
   return (
@@ -466,18 +465,9 @@ function Recepcion({ sesion, inicial, sinc }: { sesion: Sesion; inicial: boolean
         <p className="text-lg font-black">{inicial ? 'Inventario inicial' : 'Recibir costales'}</p>
         <p className="text-xs text-gray-500">
           {inicial
-            ? 'Escanea los costales que ya estaban en la tienda antes de usar el sistema.'
+            ? 'Escanea los costales que ya estaban en la tienda. Por cada uno confirma el producto y las piezas que dice la etiqueta.'
             : 'Escanea cada costal que llega. Si venía en un traslado de la bodega, se marca solo.'}
         </p>
-        <div className="grid grid-cols-3 gap-2">
-          <div className="col-span-2">
-            <Selector value={categoria} onChange={(e) => setCategoria(e.target.value)}>
-              <option value="">Producto (para costales nuevos)</option>
-              {categorias.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-            </Selector>
-          </div>
-          <Entrada inputMode="numeric" placeholder="Piezas" value={piezas} onChange={(e) => setPiezas(e.target.value.replace(/\D/g, ''))} />
-        </div>
         <Escaner onCodigo={alEscanear} deshabilitado={!!pidiendo} />
         {aviso && <Aviso tipo={aviso.ok ? 'exito' : 'error'}>{aviso.texto}</Aviso>}
       </section>
@@ -487,13 +477,17 @@ function Recepcion({ sesion, inicial, sinc }: { sesion: Sesion; inicial: boolean
       <Actividad sesion={sesion} sinc={sinc} desde={desde} />
 
       {pidiendo && (
-        <Modal titulo={`Costal nuevo ${pidiendo}`} onCerrar={() => setPidiendo(null)}>
+        <Modal titulo="Confirma con la etiqueta" onCerrar={() => setPidiendo(null)}>
           <PedirProducto
+            codigo={pidiendo}
+            inicial={inicial}
             categorias={categorias}
-            onOk={(cat, pz) => {
-              const codigo = pidiendo;
+            catInicial={ultimaCat}
+            onOk={(codigo, cat, pz) => {
               setPidiendo(null);
-              setCategoria(cat);
+              setUltimaCat(cat);
+              const existe = sinc.datos.costales.find((c) => c.codigo === codigo);
+              if (existe) return alEscanear(codigo);
               registrar(codigo, cat, pz);
             }}
           />
@@ -528,18 +522,51 @@ function PorRecibir({ sinc }: { sinc: Sinc }) {
   );
 }
 
-function PedirProducto({ categorias, onOk }: { categorias: Categoria[]; onOk: (cat: string, piezas: string) => void }) {
-  const [cat, setCat] = useState('');
+function PedirProducto({
+  codigo: leido,
+  inicial,
+  categorias,
+  catInicial,
+  onOk,
+}: {
+  codigo: string;
+  inicial: boolean;
+  categorias: Categoria[];
+  catInicial: string;
+  onOk: (codigo: string, cat: string, piezas: string) => void;
+}) {
+  const [codigo, setCodigo] = useState(leido);
+  const [editar, setEditar] = useState(false);
+  const [cat, setCat] = useState(catInicial);
   const [pz, setPz] = useState('');
+  const valido = codigoValido(codigo);
   return (
     <div className="space-y-4">
-      <p className="text-sm text-gray-500">Este costal no viene en ningún traslado. Elige el producto para registrarlo.</p>
+      <p className="text-sm text-gray-500">
+        {inicial ? 'Revisa que todo coincida con la etiqueta del costal.' : 'Este costal no viene en ningún traslado. Revisa la etiqueta y elige el producto.'}
+      </p>
+      <div className="rounded-2xl bg-gray-50 p-3 text-center">
+        <p className="text-[11px] font-bold uppercase text-gray-400">Código leído</p>
+        {editar ? (
+          <Entrada value={codigo} onChange={(e) => setCodigo(e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, ''))} className="text-center font-mono text-xl font-black" autoFocus />
+        ) : (
+          <p className="font-mono text-3xl font-black tracking-wider">{codigo}</p>
+        )}
+        {!editar && (
+          <button onClick={() => setEditar(true)} className="mt-1 text-xs font-bold text-indigo-600">
+            No coincide, corregir código
+          </button>
+        )}
+        {!valido && <p className="mt-1 text-xs font-bold text-red-600">El código debe ser EMP + 8 números.</p>}
+      </div>
       <Selector value={cat} onChange={(e) => setCat(e.target.value)}>
-        <option value="">Selecciona el producto…</option>
+        <option value="">Producto de la etiqueta…</option>
         {categorias.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
       </Selector>
-      <Entrada inputMode="numeric" placeholder="Piezas según etiqueta (opcional)" value={pz} onChange={(e) => setPz(e.target.value.replace(/\D/g, ''))} />
-      <Boton className="w-full" disabled={!cat} onClick={() => onOk(cat, pz)}>Registrar</Boton>
+      <Entrada inputMode="numeric" placeholder="Piezas según etiqueta" value={pz} onChange={(e) => setPz(e.target.value.replace(/\D/g, ''))} />
+      <Boton className="w-full py-4" disabled={!cat || !valido} onClick={() => onOk(codigo, cat, pz)}>
+        Registrar
+      </Boton>
     </div>
   );
 }
