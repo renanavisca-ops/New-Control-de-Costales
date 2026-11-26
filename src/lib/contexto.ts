@@ -1,6 +1,7 @@
+import { redirect } from 'next/navigation';
 import { cookies } from 'next/headers';
 import { supabaseServidor } from '@/lib/supabase/server';
-import { AREA_PLATAFORMA, COOKIE_AREA } from '@/lib/area';
+import { AREA_PLATAFORMA, COOKIE_AREA, PREFIJO_CENTRO } from '@/lib/area';
 import { esSuperadmin, type AsignacionRol, type Contexto, type OpcionArea, type Rol } from '@/lib/tipos';
 
 export async function obtenerContexto(): Promise<{ autenticado: boolean; contexto: Contexto }> {
@@ -26,8 +27,12 @@ export async function obtenerArea() {
   const roles: AsignacionRol[] = contexto.roles;
   const superadmin = esSuperadmin(roles);
   const sb = await supabaseServidor();
-  const { data } = await sb.from('organizaciones').select('id, nombre').order('nombre');
+  const [{ data }, { data: dc }] = await Promise.all([
+    sb.from('organizaciones').select('id, nombre').order('nombre'),
+    sb.from('tiendas').select('id, codigo, nombre, organizacion_id').eq('es_central', true).eq('activa', true).order('codigo'),
+  ]);
   const orgs = (data as { id: string; nombre: string }[]) || [];
+  const centros = (dc as { id: string; codigo: string; nombre: string; organizacion_id: string }[]) || [];
   const soportes = contexto.soportes ?? [];
 
   const opciones: OpcionArea[] = [];
@@ -38,19 +43,44 @@ export async function obtenerArea() {
     if (rolesOrg.length) opciones.push({ id: o.id, nombre: o.nombre, modo: 'MIEMBRO', roles: rolesOrg, soporteHasta: null });
     else if (superadmin) opciones.push({ id: o.id, nombre: o.nombre, modo: hasta ? 'SOPORTE' : 'SIN_ACCESO', roles: [], soporteHasta: hasta });
   });
-  // Primero la plataforma, luego las organizaciones propias, luego las de soporte
-  const orden = { PLATAFORMA: 0, MIEMBRO: 1, SOPORTE: 2, SIN_ACCESO: 3 } as const;
+  // Centros de distribución que opera: admin de su organización o bodega asignada al centro
+  centros.forEach((c) => {
+    const rolesCentro = [
+      ...new Set(
+        roles
+          .filter((r) => (r.rol === 'ADMIN_ORG' && r.organizacion_id === c.organizacion_id) || (r.rol === 'BODEGA' && r.tienda_id === c.id))
+          .map((r) => r.rol),
+      ),
+    ] as Rol[];
+    if (rolesCentro.length)
+      opciones.push({ id: PREFIJO_CENTRO + c.id, nombre: `Centro ${c.codigo} · ${c.nombre}`, modo: 'CENTRO', roles: rolesCentro, soporteHasta: null, centro: c });
+  });
+  // Primero la plataforma, luego las organizaciones propias, los centros y las de soporte
+  const orden = { PLATAFORMA: 0, MIEMBRO: 1, CENTRO: 2, SOPORTE: 3, SIN_ACCESO: 4 } as const;
   opciones.sort((a, b) => orden[a.modo] - orden[b.modo] || a.nombre.localeCompare(b.nombre));
 
   const guardada = (await cookies()).get(COOKIE_AREA)?.value;
+  const soloBodega = roles.length > 0 && roles.every((r) => r.rol === 'BODEGA');
   const activa =
-    opciones.find((o) => o.id === guardada) ?? opciones.find((o) => o.modo === 'MIEMBRO') ?? opciones[0] ?? null;
+    opciones.find((o) => o.id === guardada) ??
+    (soloBodega ? opciones.find((o) => o.modo === 'CENTRO') : undefined) ??
+    opciones.find((o) => o.modo === 'MIEMBRO') ??
+    opciones[0] ??
+    null;
   return { contexto, opciones, activa };
 }
 
 /** ¿Puede ver una pantalla de la organización activa? (por rol en esa organización o por soporte) */
 export function puedeVerEnArea(activa: OpcionArea | null, permitidos: Rol[]) {
-  if (!activa || activa.modo === 'PLATAFORMA') return false;
+  if (!activa || activa.modo === 'PLATAFORMA' || activa.modo === 'CENTRO') return false;
   if (activa.modo === 'SOPORTE') return true;
   return activa.roles.some((r) => permitidos.includes(r));
+}
+
+/** Exige estar en el área de un centro de distribución; devuelve el centro. */
+export async function exigirCentro() {
+  const r = await obtenerArea();
+  if (r.activa?.modo !== 'CENTRO' || !r.activa.centro) redirect('/');
+  const roles = r.contexto.tipo === 'ADMIN' ? r.contexto.roles : [];
+  return { ...r, centro: r.activa.centro, roles };
 }

@@ -9,6 +9,7 @@ export const SECCIONES_ORGANIZACION = [
   ['empleados', 'Empleados de tienda'],
   ['celulares', 'Celulares de tienda'],
   ['usuarios', 'Usuarios administradores'],
+  ['area-centro', 'Área del centro de distribución'],
   ['existencia-cc', 'Existencias y producción del centro'],
   ['contenedores', 'Producción por contenedor'],
   ['traslados', 'Traslados'],
@@ -133,7 +134,35 @@ export function ManualOrganizacion() {
         <p><B>Contraseña</B> genera una nueva temporal si alguien la olvida. También pueden usar &quot;¿Olvidaste tu contraseña?&quot; en la pantalla de inicio.</p>
       </Seccion>
 
-      <Seccion id="existencia-cc" titulo="9. Existencias y producción del centro de distribución">
+      <Seccion id="area-centro" titulo="9. Área del centro de distribución">
+        <p>
+          El centro de distribución tiene su propia plataforma en la computadora. En el selector de área elige <B>🏭 Centro B090</B> (o el
+          código de tu centro). La ven el administrador de la organización y los usuarios de <B>Bodega</B> asignados a ese centro; el
+          administrador los crea en Usuarios con el rol Bodega y el centro como sucursal. Un usuario que solo es de Bodega entra directo aquí.
+        </p>
+        <Tabla
+          cols={['Menú', 'Para qué sirve']}
+          filas={[
+            ['Resumen', 'Existencia del centro por producto, contenedores, lo enviado en 30 días y avisos pendientes.'],
+            ['Existencias y traslados', 'Cargar el reporte de existencias / producción por contenedor y los traslados a todas las organizaciones que abastece.'],
+            ['Producción por contenedor', 'Cada contenedor del centro y dónde están sus costales.'],
+            ['Stock de las tiendas', 'Qué tiene cada tienda abastecida de cada producto (costales o piezas), y lo que va en camino.'],
+            ['Retornos de saldo', 'Recibir y contar los sacos SAL-… que devuelven las tiendas de todas las organizaciones.'],
+            ['Inventario del centro', 'Contar la existencia del centro escaneando desde la computadora, completo o por clase.'],
+          ]}
+        />
+        <Figura img="c-resumen" pie="Resumen del centro de distribución" />
+        <Figura img="c-tiendas" pie="Stock de cada tienda abastecida por producto" />
+        <Sub>Inventario del centro</Sub>
+        <Pasos>
+          <li><B>Inventario del centro</B> → <B>+ Inventario del centro</B>: completo, o selectivo con <B>Toda la A / B / C</B> o productos sueltos.</li>
+          <li>Escanea cada costal con el lector USB o Bluetooth conectado a la computadora (o escribe el código y pulsa OK). Cada lectura dice si es <B>Encontrado</B>, <B>No esperado</B> o <B>Ya estaba contado</B>.</li>
+          <li>Al terminar, <B>Cerrar inventario</B>. El administrador puede dar de baja los faltantes.</li>
+        </Pasos>
+        <Figura img="c-inventario" pie="Inventario del centro escaneando desde la computadora" />
+      </Seccion>
+
+      <Seccion id="existencia-cc" titulo="10. Existencias y producción del centro de distribución">
         <p>
           El centro carga sus costales con el <B>Reporte de Existencias de Costales</B> del sistema (REPEXISCOS26), agrupado por contenedor
           (<B>EMBARQUE NO.</B>). Se usa para la existencia inicial del centro y, después, para cargar la <B>producción de cada contenedor</B>{' '}
@@ -159,7 +188,7 @@ export function ManualOrganizacion() {
         </Nota>
       </Seccion>
 
-      <Seccion id="contenedores" titulo="10. Producción por contenedor">
+      <Seccion id="contenedores" titulo="11. Producción por contenedor">
         <p>
           Menú <B>Producción por contenedor</B>. Muestra cada contenedor con sus costales y piezas empacadas y dónde está cada costal ahora:
           en el centro, en camino, en la tienda, produciéndose o producido. La barra indica el porcentaje ya producido y <B>Dif. piezas</B>{' '}
@@ -168,7 +197,7 @@ export function ManualOrganizacion() {
         <Figura img="o-contenedores" pie="Producción por contenedor" />
       </Seccion>
 
-      <Seccion id="traslados" titulo="11. Traslados">
+      <Seccion id="traslados" titulo="12. Traslados">
         <Sub>Cargar un traslado</Sub>
         <Pasos>
           <li>Menú <B>Traslados</B> → <B>Cargar traslado</B> → elige el reporte del traslado (COSTAL # · PIEZAS · PESO).</li>
@@ -199,7 +228,7 @@ export function ManualOrganizacion() {
         </p>
       </Seccion>
 
-      <Seccion id="inventario-inicial" titulo="12. Inventario inicial de una tienda">
+      <Seccion id="inventario-inicial" titulo="13. Inventario inicial de una tienda">
         <p>
           Carga de una sola vez los costales que una tienda ya tiene, con el <B>mismo formato del traslado</B> (reporte del sistema o la
           plantilla). Menú <B>Inventarios</B> → <B>Inventario inicial (Excel)</B>. Pueden hacerlo el administrador y el supervisor de la tienda.
@@ -218,7 +247,7 @@ export function ManualOrganizacion() {
         <Nota>Se puede cargar por partes: los costales que ya estaban cargados en esa misma tienda se omiten.</Nota>
       </Seccion>
 
-      <Seccion id="inventarios" titulo="13. Inventarios completos y selectivos">
+      <Seccion id="inventarios" titulo="14. Inventarios completos y selectivos">
         <p>El supervisor abre el inventario en la computadora; los empleados escanean en el celular de la tienda; el sistema compara contra el stock que había al abrirlo.</p>
         <Pasos>
           <li>Menú <B>Inventarios</B> → <B>+ Inventario</B> → elige la tienda.</li>
@@ -244,12 +273,12 @@ export function ManualOrganizacion() {
         <p>Si los faltantes se confirman, el administrador pulsa <B>Dar de baja los faltantes</B> y salen del stock. Solo puede haber un inventario abierto por tienda.</p>
       </Seccion>
 
-      <Seccion id="en-vivo" titulo="14. Producción en vivo">
+      <Seccion id="en-vivo" titulo="15. Producción en vivo">
         <p>Muestra quién está produciendo qué costal en este momento, en cada tienda, y cuántos costales se terminaron hoy. Se actualiza sola.</p>
         <Figura img="o-envivo" pie="Producción en vivo por tienda" />
       </Seccion>
 
-      <Seccion id="empaque" titulo="15. Empaque vs. producción">
+      <Seccion id="empaque" titulo="16. Empaque vs. producción">
         <p>
           Compara las piezas con que se empacó cada costal contra las piezas que la tienda anotó al finalizarlo. Lo ven <B>solo administradores
           y auditores</B>. Una diferencia de <B>5 piezas o más</B> se marca como alerta.
@@ -258,12 +287,12 @@ export function ManualOrganizacion() {
         <p>Filtra por tienda y por fechas; marca <B>Solo alertas</B> para ver únicamente los costales con diferencia grande.</p>
       </Seccion>
 
-      <Seccion id="costales" titulo="16. Costales">
+      <Seccion id="costales" titulo="17. Costales">
         <p>Lista de todos los costales con filtro por tienda y estado (en stock, en producción, producido, en tránsito), con un resumen por producto y búsqueda por código.</p>
         <Figura img="o-costales" pie="Costales en stock con resumen por producto" />
       </Seccion>
 
-      <Seccion id="retornos" titulo="17. Retornos de saldo">
+      <Seccion id="retornos" titulo="18. Retornos de saldo">
         <p>
           Cuando una tienda envía un saco de saldo, aparece aquí con su código SAL-…. Al llegar al centro, ábrelo, anota las piezas recibidas
           por producto (y el peso si quieres) y confírmalo. Si las piezas no coinciden, queda marcado <B>Con diferencia</B>.
@@ -271,7 +300,7 @@ export function ManualOrganizacion() {
         <Figura img="o-retornos" pie="Retornos de saldo en tránsito" />
       </Seccion>
 
-      <Seccion id="soporte" titulo="18. Acceso de soporte">
+      <Seccion id="soporte" titulo="19. Acceso de soporte">
         <p>
           Si necesitas que el equipo de la plataforma revise algo, dale acceso de <B>solo lectura</B> por un tiempo: menú{' '}
           <B>Acceso de soporte</B> → duración (2 h, 8 h, 1, 3 o 7 días) y motivo → <B>Dar acceso</B>. Puedes quitarlo cuando quieras y ver cada ingreso.
@@ -279,7 +308,7 @@ export function ManualOrganizacion() {
         <Figura img="o-soporte" pie="Accesos otorgados e ingresos por soporte" />
       </Seccion>
 
-      <Seccion id="preguntas" titulo="19. Preguntas frecuentes">
+      <Seccion id="preguntas" titulo="20. Preguntas frecuentes">
         <Tabla
           cols={['Pregunta', 'Respuesta']}
           filas={[

@@ -24,7 +24,7 @@ type Retorno = {
 const NOMBRE = { EN_TRANSITO: 'En tránsito', RECIBIDO: 'Recibido', CON_DIFERENCIA: 'Con diferencia' } as const;
 const COLOR = { EN_TRANSITO: 'indigo', RECIBIDO: 'green', CON_DIFERENCIA: 'red' } as const;
 
-export default function RetornosCliente({ roles }: { roles: AsignacionRol[] }) {
+export default function RetornosCliente({ roles, destinoId }: { roles: AsignacionRol[]; destinoId?: string }) {
   const sb = supabaseNavegador();
   const [retornos, setRetornos] = useState<Retorno[]>([]);
   const [tiendas, setTiendas] = useState<Tienda[]>([]);
@@ -43,10 +43,11 @@ export default function RetornosCliente({ roles }: { roles: AsignacionRol[] }) {
       .order('enviado_at', { ascending: false })
       .limit(500);
     if (estado) q = q.eq('estado', estado);
+    if (destinoId) q = q.eq('destino_id', destinoId);
     const [r, t] = await Promise.all([q, sb.from('tiendas').select('*')]);
     setRetornos((r.data as unknown as Retorno[]) || []);
     setTiendas((t.data as Tienda[]) || []);
-  }, [estado, sb]);
+  }, [estado, destinoId, sb]);
 
   useEffect(() => {
     cargar();

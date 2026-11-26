@@ -99,9 +99,10 @@ export const tieneAlgunRol = (roles: AsignacionRol[], permitidos: Rol[]) => role
 /** Área de trabajo del panel: la plataforma (solo superadmin) o una organización. */
 export type ModoOrg = 'MIEMBRO' | 'SOPORTE' | 'SIN_ACCESO';
 export interface OpcionArea {
-  id: string; // 'plataforma' o id de organización
+  id: string; // 'plataforma', id de organización o 'centro:<id de tienda>'
   nombre: string;
-  modo: ModoOrg | 'PLATAFORMA';
+  modo: ModoOrg | 'PLATAFORMA' | 'CENTRO';
   roles: Rol[];
   soporteHasta: string | null;
+  centro?: { id: string; codigo: string; nombre: string; organizacion_id: string };
 }

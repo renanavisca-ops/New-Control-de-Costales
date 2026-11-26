@@ -22,7 +22,7 @@ type Resumen = {
   id: string; numero: string; fecha: string | null; referencia: string | null; created_at: string;
   centro: string; tienda: string; tienda_org: string;
   total_costales: number; total_piezas: number;
-  recibidos: number; pendientes: number; piezas_pendientes: number;
+  recibidos: number; pendientes?: number; piezas_pendientes?: number;
   sin_existencia: string[]; revisado_at: string | null; nota_revision: string | null;
 };
 type Detalle = {
@@ -35,10 +35,14 @@ type Carga =
 
 const n = (x: number) => x.toLocaleString();
 
-export default function TrasladosCliente({ roles, soloLectura }: { roles: AsignacionRol[]; soloLectura: boolean }) {
+type CentroFijo = { id: string; codigo: string; nombre: string; organizacion_id: string };
+
+export default function TrasladosCliente({ roles, soloLectura, centro }: { roles: AsignacionRol[]; soloLectura: boolean; centro?: CentroFijo }) {
   const sb = supabaseNavegador();
   const [orgs, setOrgs] = useState<Organizacion[]>([]);
-  const [orgId] = useOrgActiva(orgs);
+  const [orgActiva] = useOrgActiva(orgs);
+  const modoCentro = !!centro;
+  const orgId = centro ? centro.organizacion_id : orgActiva;
   const [centros, setCentros] = useState<Tienda[]>([]);
   const [centroId, setCentroId] = useState('');
   const [productos, setProductos] = useState<Categoria[]>([]);
@@ -54,7 +58,9 @@ export default function TrasladosCliente({ roles, soloLectura }: { roles: Asigna
   const existenciaRef = useRef<HTMLInputElement>(null);
 
   const puedeCargar =
-    !soloLectura && !!orgId && roles.some((r) => r.organizacion_id === orgId && (r.rol === 'ADMIN_ORG' || r.rol === 'BODEGA'));
+    !soloLectura &&
+    !!orgId &&
+    roles.some((r) => r.organizacion_id === orgId && (r.rol === 'ADMIN_ORG' || (r.rol === 'BODEGA' && (!centro || r.tienda_id === centro.id))));
   const nombreOrg = orgs.find((o) => o.id === orgId)?.nombre ?? '';
 
   useEffect(() => {
@@ -63,17 +69,19 @@ export default function TrasladosCliente({ roles, soloLectura }: { roles: Asigna
 
   const cargar = useCallback(async () => {
     if (!orgId) return;
+    let qc = sb.from('tiendas').select('*').eq('organizacion_id', orgId).eq('es_central', true).eq('activa', true).order('codigo');
+    if (centro) qc = qc.eq('id', centro.id);
     const [c, p, r] = await Promise.all([
-      sb.from('tiendas').select('*').eq('organizacion_id', orgId).eq('es_central', true).eq('activa', true).order('codigo'),
+      qc,
       sb.from('categorias').select('*').eq('organizacion_id', orgId).order('nombre'),
-      sb.rpc('traslados_lista', { p_org: orgId }),
+      centro ? sb.rpc('centro_traslados', { p_centro: centro.id }) : sb.rpc('traslados_lista', { p_org: orgId }),
     ]);
     const cs = (c.data as Tienda[]) || [];
     setCentros(cs);
     setCentroId((x) => (x && cs.some((k) => k.id === x) ? x : cs[0]?.id ?? ''));
     setProductos((p.data as Categoria[]) || []);
     setLista((r.data as Resumen[]) || []);
-  }, [orgId, sb]);
+  }, [orgId, centro, sb]);
 
   useEffect(() => {
     cargar();
@@ -167,7 +175,7 @@ export default function TrasladosCliente({ roles, soloLectura }: { roles: Asigna
 
   const verDetalle = async (r: Resumen) => {
     const { data } = await sb.rpc('detalle_traslado', { p_id: r.id });
-    setSoloPendientes(r.pendientes > 0 && r.recibidos > 0);
+    setSoloPendientes(!modoCentro && (r.pendientes ?? 0) > 0 && r.recibidos > 0);
     setDetalle({ r, filas: (data as Detalle[]) || [] });
   };
 
@@ -215,7 +223,7 @@ export default function TrasladosCliente({ roles, soloLectura }: { roles: Asigna
         </p>
         <p>
           <b>Traslado:</b> sube el reporte del traslado (COSTAL # · PIEZAS · PESO). Los costales salen de la existencia del centro y quedan{' '}
-          <b>en tránsito</b> hasta que la tienda los escanea. Aquí ves cuántos costales y piezas faltan por llegar.
+          <b>en tránsito</b> hasta que la tienda los escanea.{!modoCentro && ' Aquí ves cuántos costales y piezas faltan por llegar.'}
         </p>
         <p className="flex flex-wrap gap-x-4 gap-y-1">
           <span className="font-bold text-gray-600">Plantillas:</span>
@@ -251,7 +259,7 @@ export default function TrasladosCliente({ roles, soloLectura }: { roles: Asigna
               <th className="px-4 py-3">Destino</th>
               <th className="px-4 py-3 text-right">Costales</th>
               <th className="px-4 py-3 text-right">Piezas</th>
-              <th className="px-4 py-3">Recepción</th>
+              <th className="px-4 py-3">{modoCentro ? 'Revisión' : 'Recepción'}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -268,14 +276,19 @@ export default function TrasladosCliente({ roles, soloLectura }: { roles: Asigna
                 <td className="px-4 py-3 text-right font-mono">{r.total_costales}</td>
                 <td className="px-4 py-3 text-right font-mono">{n(r.total_piezas)}</td>
                 <td className="px-4 py-3">
-                  {r.pendientes === 0 ? (
-                    <Insignia color="green">Completo</Insignia>
-                  ) : r.recibidos === 0 ? (
-                    <Insignia>En tránsito</Insignia>
-                  ) : (
-                    <Insignia color="red">Faltan {r.pendientes} · {n(r.piezas_pendientes)} pzs</Insignia>
+                  {!modoCentro && (
+                    <>
+                      {r.pendientes === 0 ? (
+                        <Insignia color="green">Completo</Insignia>
+                      ) : r.recibidos === 0 ? (
+                        <Insignia>En tránsito</Insignia>
+                      ) : (
+                        <Insignia color="red">Faltan {r.pendientes} · {n(r.piezas_pendientes ?? 0)} pzs</Insignia>
+                      )}
+                      <p className="mt-1 text-xs text-gray-400">{r.recibidos} de {r.total_costales} recibidos</p>
+                    </>
                   )}
-                  <p className="mt-1 text-xs text-gray-400">{r.recibidos} de {r.total_costales} recibidos</p>
+                  {modoCentro && r.sin_existencia.length === 0 && <Insignia color="gray">Enviado</Insignia>}
                   {r.sin_existencia.length > 0 && (
                     <p className={`mt-1 text-xs font-bold ${r.revisado_at ? 'text-gray-400' : 'text-red-600'}`}>
                       ⚠ {r.sin_existencia.length} sin existencia en el centro{r.revisado_at ? ' (revisado)' : ''}
@@ -364,12 +377,20 @@ export default function TrasladosCliente({ roles, soloLectura }: { roles: Asigna
 
       {detalle && (
         <Modal ancho titulo={`Traslado #${detalle.r.numero} → ${detalle.r.tienda}`} onCerrar={() => setDetalle(null)}>
-          <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
-            <Dato e="Recibidos" v={`${detalle.r.recibidos} de ${detalle.r.total_costales}`} />
-            <Dato e="Costales que faltan" v={String(detalle.r.pendientes)} />
-            <Dato e="Piezas que faltan" v={n(detalle.r.piezas_pendientes)} />
-            <Dato e="Piezas del traslado" v={n(detalle.r.total_piezas)} />
-          </div>
+          {modoCentro ? (
+            <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
+              <Dato e="Costales" v={n(detalle.r.total_costales)} />
+              <Dato e="Piezas" v={n(detalle.r.total_piezas)} />
+              <Dato e="Organización" v={detalle.r.tienda_org} />
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
+              <Dato e="Recibidos" v={`${detalle.r.recibidos} de ${detalle.r.total_costales}`} />
+              <Dato e="Costales que faltan" v={String(detalle.r.pendientes ?? 0)} />
+              <Dato e="Piezas que faltan" v={n(detalle.r.piezas_pendientes ?? 0)} />
+              <Dato e="Piezas del traslado" v={n(detalle.r.total_piezas)} />
+            </div>
+          )}
           {detalle.r.sin_existencia.length > 0 && (
             <div className={`space-y-2 rounded-2xl p-4 ${detalle.r.revisado_at ? 'bg-gray-50' : 'bg-red-50'}`}>
               <p className="text-sm font-black text-red-700">⚠ {detalle.r.sin_existencia.length} costales no estaban en el inventario del centro</p>
@@ -389,10 +410,12 @@ export default function TrasladosCliente({ roles, soloLectura }: { roles: Asigna
               )}
             </div>
           )}
-          <label className="flex items-center gap-2 text-sm font-bold">
-            <input type="checkbox" checked={soloPendientes} onChange={(e) => setSoloPendientes(e.target.checked)} />
-            Ver solo los que no han llegado
-          </label>
+          {!modoCentro && (
+            <label className="flex items-center gap-2 text-sm font-bold">
+              <input type="checkbox" checked={soloPendientes} onChange={(e) => setSoloPendientes(e.target.checked)} />
+              Ver solo los que no han llegado
+            </label>
+          )}
           <div className="overflow-x-auto rounded-2xl border border-gray-100">
             <table className="w-full text-left text-sm">
               <thead className="bg-gray-50 text-xs font-black uppercase text-gray-500">
@@ -401,7 +424,7 @@ export default function TrasladosCliente({ roles, soloLectura }: { roles: Asigna
                   <th className="px-3 py-2">Producto</th>
                   <th className="px-3 py-2 text-right">Piezas</th>
                   <th className="px-3 py-2 text-right">Peso</th>
-                  <th className="px-3 py-2">Estado</th>
+                  {!modoCentro && <th className="px-3 py-2">Estado</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -413,7 +436,7 @@ export default function TrasladosCliente({ roles, soloLectura }: { roles: Asigna
                       <td className="px-3 py-2">{f.producto}</td>
                       <td className="px-3 py-2 text-right font-mono">{f.piezas}</td>
                       <td className="px-3 py-2 text-right font-mono">{f.peso ?? '—'}</td>
-                      <td className="px-3 py-2">
+                      {!modoCentro && <td className="px-3 py-2">
                         {f.estado === 'EN_TRANSITO' ? (
                           <Insignia color="red">No ha llegado</Insignia>
                         ) : (
@@ -421,7 +444,7 @@ export default function TrasladosCliente({ roles, soloLectura }: { roles: Asigna
                             <Insignia color="green">Recibido</Insignia> {f.recibido_at ? new Date(f.recibido_at).toLocaleString() : ''} {f.recibido_por ?? ''}
                           </span>
                         )}
-                      </td>
+                      </td>}
                     </tr>
                   ))}
               </tbody>

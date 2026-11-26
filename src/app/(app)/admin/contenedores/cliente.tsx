@@ -16,7 +16,7 @@ type Fila = {
 const n = (x: number) => Number(x).toLocaleString();
 const fecha = (f: string | null) => (f ? new Date(f + 'T12:00:00').toLocaleDateString() : '—');
 
-export default function ContenedoresCliente({ roles }: { roles: AsignacionRol[] }) {
+export default function ContenedoresCliente({ roles, centroId }: { roles: AsignacionRol[]; centroId?: string }) {
   const sb = supabaseNavegador();
   const [orgs, setOrgs] = useState<Organizacion[]>([]);
   const [orgId] = useOrgActiva(orgs);
@@ -28,10 +28,12 @@ export default function ContenedoresCliente({ roles }: { roles: AsignacionRol[] 
   }, [roles]);
 
   const cargar = useCallback(async () => {
-    if (!orgId) return;
-    const { data } = await sb.rpc('reporte_contenedores', { p_org: orgId });
+    if (!centroId && !orgId) return;
+    const { data } = centroId
+      ? await sb.rpc('centro_contenedores', { p_centro: centroId })
+      : await sb.rpc('reporte_contenedores', { p_org: orgId });
     setFilas((data as Fila[]) || []);
-  }, [orgId, sb]);
+  }, [orgId, centroId, sb]);
 
   useEffect(() => {
     cargar();
@@ -115,7 +117,7 @@ export default function ContenedoresCliente({ roles }: { roles: AsignacionRol[] 
             {visibles.length === 0 && (
               <tr>
                 <td colSpan={10} className="px-4 py-8 text-center text-gray-400">
-                  Sin contenedores. Carga el Reporte de Existencias de Costales en Traslados → Existencias / producción del centro.
+                  Sin contenedores. Carga el Reporte de Existencias de Costales en Existencias y traslados.
                 </td>
               </tr>
             )}
