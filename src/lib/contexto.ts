@@ -38,7 +38,13 @@ export async function obtenerArea() {
   const opciones: OpcionArea[] = [];
   if (superadmin) opciones.push({ id: AREA_PLATAFORMA, nombre: 'Mi plataforma', modo: 'PLATAFORMA', roles: [], soporteHasta: null });
   orgs.forEach((o) => {
-    const rolesOrg = [...new Set(roles.filter((r) => r.organizacion_id === o.id).map((r) => r.rol))] as Rol[];
+    // El rol Bodega de un centro de distribución trabaja en el área del centro, no en la organización
+    const idsCentros = new Set(centros.map((c) => c.id));
+    const rolesOrg = [
+      ...new Set(
+        roles.filter((r) => r.organizacion_id === o.id && !(r.rol === 'BODEGA' && r.tienda_id && idsCentros.has(r.tienda_id))).map((r) => r.rol),
+      ),
+    ] as Rol[];
     const hasta = soportes.filter((s) => s.organizacion_id === o.id).map((s) => s.expira_at).sort().pop() ?? null;
     if (rolesOrg.length) opciones.push({ id: o.id, nombre: o.nombre, modo: 'MIEMBRO', roles: rolesOrg, soporteHasta: null });
     else if (superadmin) opciones.push({ id: o.id, nombre: o.nombre, modo: hasta ? 'SOPORTE' : 'SIN_ACCESO', roles: [], soporteHasta: hasta });

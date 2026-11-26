@@ -1,12 +1,17 @@
 'use client';
 import { useEffect } from 'react';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { supabaseNavegador } from '@/lib/supabase/client';
 import type { OpcionArea } from '@/lib/tipos';
 
 /** Franja superior: indica el modo soporte (solo lectura) y registra el ingreso en la auditoría de la organización. */
 export default function BarraContexto({ activa }: { activa: OpcionArea | null }) {
   const ruta = usePathname();
+  const router = useRouter();
+  // En el área de un centro de distribución, las pantallas de la organización no aplican
+  useEffect(() => {
+    if (activa?.modo === 'CENTRO' && (ruta.startsWith('/admin') || ruta.startsWith('/plataforma'))) router.replace('/centro');
+  }, [activa, ruta, router]);
   useEffect(() => {
     if (activa?.modo === 'SOPORTE') void supabaseNavegador().rpc('registrar_vista_soporte', { p_org: activa.id, p_ruta: ruta });
   }, [activa, ruta]);
