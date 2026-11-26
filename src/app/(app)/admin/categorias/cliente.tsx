@@ -112,7 +112,7 @@ export default function CategoriasCliente({ roles }: { roles: AsignacionRol[] })
       </Titulo>
       <SelectorOrg orgs={orgs} valor={orgId} onCambio={setOrgId} />
       <p className="mb-4 text-sm text-gray-500">
-        Lista de productos (categorías) de la organización. La usan todas sus tiendas y las organizaciones que abastece su centro de distribución. &quot;Piezas por costal&quot; es lo que normalmente trae un costal de ese producto. El Excel necesita una columna &quot;producto&quot; y, opcional, una columna &quot;piezas&quot;.
+        Lista de productos (categorías) de la organización. La usan todas sus tiendas y las organizaciones que abastece su centro de distribución. &quot;Piezas por costal&quot; es un valor aproximado de lo que normalmente trae un costal de ese producto (solo de referencia). El Excel necesita una columna &quot;producto&quot; y, opcional, una columna &quot;piezas&quot;.
       </p>
       {resumen && <div className="mb-4"><Aviso tipo="info">{resumen}</Aviso></div>}
 
@@ -134,7 +134,7 @@ export default function CategoriasCliente({ roles }: { roles: AsignacionRol[] })
           <thead className="bg-gray-50 text-xs font-black uppercase tracking-wide text-gray-500">
             <tr>
               <th className="px-5 py-3">Producto</th>
-              <th className="px-5 py-3 text-right">Piezas por costal</th>
+              <th className="px-5 py-3 text-right">Piezas por costal (aprox.)</th>
               <th className="px-5 py-3">Estado</th>
               {editable && <th className="px-5 py-3 text-right">Acciones</th>}
             </tr>

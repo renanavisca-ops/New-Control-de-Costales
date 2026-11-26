@@ -49,13 +49,16 @@ export function MapeoProductos({
                 <td className="px-3 py-2">
                   <Selector value={mapa[s] ?? ''} onChange={(e) => onCambio({ ...mapa, [s]: e.target.value })}>
                     {!permitirCrear && <option value="">Elige el producto…</option>}
-                    {permitirCrear && <option value={CREAR}>➕ Crear producto &quot;{s}&quot;</option>}
+                    {permitirCrear && <option value={CREAR}>➕ Producto nuevo: {s} (no existe en Productos)</option>}
                     {productos.filter((p) => p.activa).map((p) => <option key={p.id} value={p.nombre}>{p.nombre}</option>)}
                   </Selector>
-                  {prod?.piezas_estandar != null && Math.round(promedio) !== prod.piezas_estandar && (
-                    <p className="mt-1 text-xs font-bold text-amber-600">
-                      Estándar {prod.piezas_estandar} pzs; este archivo trae {Number.isInteger(promedio) ? promedio : promedio.toFixed(1)} por costal.
+                  {prod?.piezas_estandar != null && (
+                    <p className="mt-1 text-xs text-gray-400">
+                      Aprox. {prod.piezas_estandar} pzs por costal · en este archivo {Number.isInteger(promedio) ? promedio : promedio.toFixed(1)}
                     </p>
+                  )}
+                  {permitirCrear && mapa[s] === CREAR && (
+                    <p className="mt-1 text-xs font-bold text-indigo-600">Se agregará a Productos al confirmar. Si es uno que ya tienes, elígelo en la lista.</p>
                   )}
                 </td>
                 <td className="px-3 py-2 text-right font-mono">{x.costales.toLocaleString()}</td>
