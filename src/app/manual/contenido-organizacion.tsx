@@ -147,6 +147,7 @@ export function ManualOrganizacion() {
             ['Existencias y traslados', 'Cargar el reporte de existencias / producción por contenedor y los traslados a todas las organizaciones que abastece.'],
             ['Producción por contenedor', 'Cada contenedor del centro y dónde están sus costales.'],
             ['Stock de las tiendas', 'Qué tiene cada tienda abastecida de cada producto (costales o piezas), y lo que va en camino.'],
+            ['Ventas locales', 'Los costales que el centro traslada a la bodega B037 quedan disponibles sin recepción; se escanean (o se digita el código) al venderlos. Una venta equivocada se puede deshacer.'],
             ['Retornos de saldo', 'Recibir y contar los sacos SAL-… que devuelven las tiendas de todas las organizaciones.'],
             ['Inventario del centro', 'Contar la existencia del centro escaneando desde la computadora, completo o por clase.'],
           ]}
@@ -160,6 +161,10 @@ export function ManualOrganizacion() {
           <li>Al terminar, <B>Cerrar inventario</B>. El administrador puede dar de baja los faltantes.</li>
         </Pasos>
         <Figura img="c-inventario" pie="Inventario del centro escaneando desde la computadora" />
+        <Nota>
+          Si el lector no reconoce un costal (etiqueta dañada o sucia), en cualquier escáner de la app —recibir, producir, inventarios,
+          ventas locales— se puede <B>escribir el código a mano</B> y pulsar <B>OK</B>.
+        </Nota>
       </Seccion>
 
       <Seccion id="existencia-cc" titulo="10. Existencias y producción del centro de distribución">

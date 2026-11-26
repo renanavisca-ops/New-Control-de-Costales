@@ -9,7 +9,7 @@ import { Entrada, Tarjeta, Titulo } from '@/components/ui';
 type Fila = {
   contenedor: string; primera_fecha: string | null; ultima_fecha: string | null;
   costales: number; piezas: number; peso: number;
-  en_centro: number; en_transito: number; en_tienda: number; en_produccion: number; producidos: number;
+  en_centro: number; en_transito: number; en_tienda: number; en_produccion: number; producidos: number; vendidos: number;
   piezas_producidas: number; diferencia: number;
 };
 
@@ -30,8 +30,8 @@ export default function ContenedoresCliente({ roles, centroId }: { roles: Asigna
   const cargar = useCallback(async () => {
     if (!centroId && !orgId) return;
     const { data } = centroId
-      ? await sb.rpc('centro_contenedores', { p_centro: centroId })
-      : await sb.rpc('reporte_contenedores', { p_org: orgId });
+      ? await sb.rpc('contenedores_centro', { p_centro: centroId })
+      : await sb.rpc('contenedores_org', { p_org: orgId });
     setFilas((data as Fila[]) || []);
   }, [orgId, centroId, sb]);
 
@@ -45,7 +45,7 @@ export default function ContenedoresCliente({ roles, centroId }: { roles: Asigna
       visibles.reduce(
         (a, f) => ({
           costales: a.costales + f.costales, piezas: a.piezas + f.piezas, en_centro: a.en_centro + f.en_centro,
-          enviados: a.enviados + f.en_transito + f.en_tienda + f.en_produccion + f.producidos, producidos: a.producidos + f.producidos,
+          enviados: a.enviados + f.en_transito + f.en_tienda + f.en_produccion + f.producidos + f.vendidos, producidos: a.producidos + f.producidos,
         }),
         { costales: 0, piezas: 0, en_centro: 0, enviados: 0, producidos: 0 },
       ),
@@ -70,7 +70,7 @@ export default function ContenedoresCliente({ roles, centroId }: { roles: Asigna
         <Entrada placeholder="Buscar contenedor (ej. BOS 160)" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} />
       </div>
       <div className="overflow-x-auto rounded-3xl border border-gray-100 bg-white shadow-sm">
-        <table className="w-full min-w-[60rem] text-left text-sm">
+        <table className="w-full min-w-[66rem] text-left text-sm">
           <thead className="bg-gray-50 text-xs font-black uppercase tracking-wide text-gray-500">
             <tr>
               <th className="px-4 py-3">Contenedor</th>
@@ -82,6 +82,7 @@ export default function ContenedoresCliente({ roles, centroId }: { roles: Asigna
               <th className="px-4 py-3 text-right">En tienda</th>
               <th className="px-4 py-3 text-right">Produciendo</th>
               <th className="px-4 py-3 text-right">Producidos</th>
+              <th className="px-4 py-3 text-right">Venta local</th>
               <th className="px-4 py-3 text-right">Dif. piezas</th>
             </tr>
           </thead>
@@ -108,6 +109,7 @@ export default function ContenedoresCliente({ roles, centroId }: { roles: Asigna
                   <td className="px-4 py-3 text-right font-mono">{n(f.en_tienda)}</td>
                   <td className="px-4 py-3 text-right font-mono">{n(f.en_produccion)}</td>
                   <td className="px-4 py-3 text-right font-mono">{n(f.producidos)}</td>
+                  <td className="px-4 py-3 text-right font-mono">{n(f.vendidos)}</td>
                   <td className={`px-4 py-3 text-right font-mono font-bold ${f.diferencia < 0 ? 'text-red-600' : f.diferencia > 0 ? 'text-orange-600' : ''}`}>
                     {f.producidos ? (f.diferencia > 0 ? '+' : '') + n(f.diferencia) : '—'}
                   </td>
@@ -116,7 +118,7 @@ export default function ContenedoresCliente({ roles, centroId }: { roles: Asigna
             })}
             {visibles.length === 0 && (
               <tr>
-                <td colSpan={10} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={11} className="px-4 py-8 text-center text-gray-400">
                   Sin contenedores. Carga el Reporte de Existencias de Costales en Existencias y traslados.
                 </td>
               </tr>
