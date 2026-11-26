@@ -3,7 +3,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabaseNavegador } from '@/lib/supabase/client';
 import { cargarOrgsPropias, rpc } from '@/lib/datos';
 import { descargarExcel, leerFilasExcel } from '@/lib/excel';
-import { COLUMNAS_PLANTILLA, leerExistencia, type LecturaExistencia } from '@/lib/existencia';
+import { buscarProducto, leerTraslado, plantillaTraslado, tipoReporte, type Traslado } from '@/lib/traslado';
+import { MapeoProductos } from '@/components/mapeo-productos';
 import { puedeAdministrarOrg, type AsignacionRol, type Categoria, type Organizacion, type Tienda } from '@/lib/tipos';
 import { Aviso, Boton, Campo, Insignia, Modal, Selector, Tarjeta, Titulo } from '@/components/ui';
 
@@ -46,7 +47,10 @@ export default function InventariosCliente({ roles }: { roles: AsignacionRol[] }
   const [abierto, setAbierto] = useState<Inventario | null>(null);
   const [detalle, setDetalle] = useState<Detalle[]>([]);
   const [error, setError] = useState('');
-  const [inicial, setInicial] = useState<{ tienda: string; archivo?: string; lectura?: LecturaExistencia; ocupado?: boolean; resultado?: string } | null>(null);
+  const [inicial, setInicial] = useState<{
+    tienda: string; archivo?: string; t?: Traslado; mapa?: Record<string, string>; ocupado?: boolean;
+    resultado?: string; error?: string; aceptoBodega?: boolean;
+  } | null>(null);
   const archivoRef = useRef<HTMLInputElement>(null);
 
   const tiendasSupervisables = useMemo(
@@ -133,24 +137,13 @@ export default function InventariosCliente({ roles }: { roles: AsignacionRol[] }
     });
   };
 
-  const descargarPlantilla = () => {
-    const t = tiendas.find((x) => x.id === inicial?.tienda);
+  const tiendaInicial = tiendas.find((x) => x.id === inicial?.tienda);
+  const descargarPlantilla = () =>
     descargarExcel(
-      `inventario_inicial_${t?.codigo ?? 'sucursal'}.xlsx`,
-      {
-        Existencia: [COLUMNAS_PLANTILLA],
-        Instrucciones: [
-          ['Pega un costal por fila en la hoja "Existencia", desde la fila 2.'],
-          ['CODIGO: el código de barras del costal (ej. EMP02215259).'],
-          ['PRODUCTO: tal como aparece en la hoja "Productos" (ej. ROPA A, ZAPATO B).'],
-          ['PIEZAS: si la dejas vacía se usan las piezas por costal del producto.'],
-          ['PRECIO y PESO son opcionales.'],
-        ],
-        Productos: [['PRODUCTO', 'PIEZAS POR COSTAL'], ...categorias.map((c) => [c.nombre, c.piezas_estandar ?? ''])],
-      },
-      [18, 22, 10, 10, 10],
+      `inventario_inicial_${tiendaInicial?.codigo ?? 'sucursal'}.xlsx`,
+      { Traslado: plantillaTraslado(orgs.find((o) => o.id === tiendaInicial?.organizacion_id)?.nombre ?? '') },
+      [40, 10, 10],
     );
-  };
 
   const leerInicial = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const archivo = e.target.files?.[0];
@@ -158,37 +151,35 @@ export default function InventariosCliente({ roles }: { roles: AsignacionRol[] }
     if (!archivo || !inicial) return;
     try {
       const celdas = await leerFilasExcel(archivo);
-      const productos = new Map(categorias.map((c) => [c.nombre.toUpperCase(), c.piezas_estandar]));
-      setInicial({ ...inicial, archivo: archivo.name, lectura: leerExistencia(celdas, productos), resultado: undefined });
+      if (tipoReporte(celdas) !== 'TRASLADO')
+        return setInicial({ tienda: inicial.tienda, archivo: archivo.name, error: 'El archivo no tiene el formato de traslado (COSTAL # | PIEZAS | PESO).' });
+      const t = leerTraslado(celdas);
+      const nombres = categorias.map((c) => c.nombre);
+      const mapa: Record<string, string> = {};
+      new Set(t.costales.map((k) => k.seccion)).forEach((sec) => (mapa[sec] = buscarProducto(sec, nombres) ?? ''));
+      setInicial({ tienda: inicial.tienda, archivo: archivo.name, t, mapa });
     } catch (err) {
-      setInicial({ ...inicial, archivo: archivo.name, lectura: { filas: [], errores: ['No se pudo leer el archivo: ' + (err as Error).message] } });
+      setInicial({ tienda: inicial.tienda, archivo: archivo.name, error: 'No se pudo leer el archivo: ' + (err as Error).message });
     }
   };
 
+  const bodegaDistinta =
+    !!inicial?.t && !!tiendaInicial && (tiendaInicial.bodega ?? '').toUpperCase() !== inicial.t.bodegaEntrada.toUpperCase();
+
   const confirmarInicial = async () => {
-    if (!inicial?.lectura?.filas.length) return;
-    setInicial({ ...inicial, ocupado: true });
+    if (!inicial?.t || !inicial.mapa) return;
+    const { t, mapa } = inicial;
+    setInicial({ ...inicial, ocupado: true, error: undefined });
     const r = await rpc<{ cargados: number; ya_estaban: number; tienda: string }>('cargar_existencia', {
       p_tienda: inicial.tienda,
-      p_costales: inicial.lectura.filas.map(({ codigo, producto, piezas, precio, peso }) => ({ codigo, producto, piezas, precio, peso })),
+      p_costales: t.costales.map((k) => ({ codigo: k.codigo, producto: mapa[k.seccion], piezas: k.piezas, peso: k.peso })),
     });
-    if (r.error) return setInicial({ ...inicial, ocupado: false, lectura: { ...inicial.lectura, errores: [r.error] } });
+    if (r.error) return setInicial({ ...inicial, ocupado: false, error: r.error });
     setInicial({
       tienda: inicial.tienda,
       resultado: `${r.data!.tienda}: ${r.data!.cargados} costales agregados al stock` + (r.data!.ya_estaban ? `, ${r.data!.ya_estaban} ya estaban cargados.` : '.'),
     });
   };
-
-  const resumenInicial = useMemo(() => {
-    const m = new Map<string, { costales: number; piezas: number }>();
-    inicial?.lectura?.filas.forEach((f) => {
-      const x = m.get(f.producto) ?? { costales: 0, piezas: 0 };
-      x.costales++;
-      x.piezas += f.piezas;
-      m.set(f.producto, x);
-    });
-    return Array.from(m.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [inicial]);
 
   const avancePorProducto = useMemo(() => {
     const m = new Map<string, { esperados: number; encontrados: number }>();
@@ -318,60 +309,62 @@ export default function InventariosCliente({ roles }: { roles: AsignacionRol[] }
       {inicial && (
         <Modal ancho titulo="Inventario inicial desde Excel" onCerrar={() => setInicial(null)}>
           <p className="text-sm text-gray-500">
-            Carga de una sola vez los costales que ya tiene la sucursal. Descarga la plantilla, pega la existencia (código, producto y
-            piezas; precio y peso son opcionales; si dejas las piezas vacías se usan las piezas por costal del producto) y súbela.
+            Carga de una sola vez los costales que ya tiene la tienda. Usa el <b>mismo formato del traslado</b> (reporte del sistema o la
+            plantilla): COSTAL # · PIEZAS · PESO, agrupado por clasificación y producto. La <b>BODEGA DE ENTRADA</b> debe ser la de esta tienda.
           </p>
-          <Campo etiqueta="Sucursal">
+          <Campo etiqueta="Número de tienda">
             <Selector value={inicial.tienda} onChange={(e) => setInicial({ tienda: e.target.value })}>
-              {tiendasSupervisables.map((t) => <option key={t.id} value={t.id}>{t.codigo} · {t.nombre}</option>)}
+              {tiendasSupervisables.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.codigo} · {t.nombre}
+                  {t.bodega ? ` (bodega ${t.bodega})` : ''}
+                </option>
+              ))}
             </Selector>
           </Campo>
           <div className="flex flex-wrap gap-2">
             <Boton variante="secundario" onClick={descargarPlantilla}>⬇ Descargar plantilla</Boton>
-            <input ref={archivoRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={leerInicial} />
-            <Boton onClick={() => archivoRef.current?.click()}>⬆ Subir Excel lleno</Boton>
+            <input ref={archivoRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={leerInicial} />
+            <Boton onClick={() => archivoRef.current?.click()}>⬆ Subir Excel</Boton>
           </div>
           {inicial.resultado && <Aviso tipo="exito">{inicial.resultado}</Aviso>}
-          {inicial.lectura && (
+          {inicial.error && <Aviso tipo="error">{inicial.error}</Aviso>}
+          {inicial.t && inicial.mapa && (
             <>
               <p className="text-sm font-bold">
-                {inicial.archivo}: {inicial.lectura.filas.length} costales ·{' '}
-                {inicial.lectura.filas.reduce((s, f) => s + f.piezas, 0).toLocaleString()} piezas
+                {inicial.archivo}: {inicial.t.costales.length} costales · {inicial.t.costales.reduce((s, k) => s + k.piezas, 0).toLocaleString()} piezas ·
+                bodega de entrada {inicial.t.bodegaEntrada || '—'}
               </p>
-              {inicial.lectura.errores.slice(0, 12).map((e) => <Aviso key={e} tipo="error">{e}</Aviso>)}
-              {inicial.lectura.errores.length > 12 && <Aviso tipo="error">…y {inicial.lectura.errores.length - 12} errores más.</Aviso>}
-              {resumenInicial.length > 0 && (
-                <div className="overflow-x-auto rounded-2xl border border-gray-100">
-                  <table className="w-full text-left text-sm">
-                    <thead className="bg-gray-50 text-xs font-black uppercase text-gray-500">
-                      <tr>
-                        <th className="px-3 py-2">Producto</th>
-                        <th className="px-3 py-2 text-right">Costales</th>
-                        <th className="px-3 py-2 text-right">Piezas</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {resumenInicial.map(([p, x]) => (
-                        <tr key={p}>
-                          <td className="px-3 py-2 font-bold">{p}</td>
-                          <td className="px-3 py-2 text-right font-mono">{x.costales}</td>
-                          <td className="px-3 py-2 text-right font-mono">{x.piezas.toLocaleString()}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+              {inicial.t.avisos.slice(0, 6).map((a) => <Aviso key={a} tipo="error">{a}</Aviso>)}
+              {bodegaDistinta && (
+                <div className="space-y-2 rounded-2xl border-l-4 border-amber-400 bg-amber-50 p-4 text-sm text-amber-900">
+                  <p className="font-black">
+                    La bodega de entrada del archivo ({inicial.t.bodegaEntrada || 'vacía'}) no coincide con la tienda seleccionada (
+                    {tiendaInicial?.codigo}, bodega {tiendaInicial?.bodega || 'sin asignar'}).
+                  </p>
+                  <label className="flex items-center gap-2 font-bold">
+                    <input type="checkbox" checked={!!inicial.aceptoBodega} onChange={(e) => setInicial({ ...inicial, aceptoBodega: e.target.checked })} />
+                    Revisé el archivo y sí es de esta tienda
+                  </label>
                 </div>
               )}
+              <MapeoProductos
+                costales={inicial.t.costales}
+                productos={categorias}
+                mapa={inicial.mapa}
+                onCambio={(mapa) => setInicial({ ...inicial, mapa })}
+                permitirCrear={false}
+              />
               <Boton
                 className="w-full"
-                disabled={inicial.ocupado || !inicial.lectura.filas.length || inicial.lectura.errores.length > 0}
+                disabled={inicial.ocupado || Object.values(inicial.mapa).some((v) => !v) || (bodegaDistinta && !inicial.aceptoBodega)}
                 onClick={confirmarInicial}
               >
                 {inicial.ocupado
                   ? 'Cargando…'
-                  : inicial.lectura.errores.length
-                    ? 'Corrige los errores y vuelve a subir el archivo'
-                    : `Confirmar: agregar ${inicial.lectura.filas.length} costales al stock`}
+                  : Object.values(inicial.mapa).some((v) => !v)
+                    ? 'Elige el producto de cada sección'
+                    : `Confirmar: agregar ${inicial.t.costales.length} costales al stock de ${tiendaInicial?.codigo ?? ''}`}
               </Boton>
             </>
           )}

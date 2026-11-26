@@ -9,9 +9,10 @@ export const SECCIONES_ORGANIZACION = [
   ['empleados', 'Empleados de tienda'],
   ['celulares', 'Celulares de tienda'],
   ['usuarios', 'Usuarios administradores'],
-  ['existencia-cc', 'Existencia del centro de distribución'],
+  ['existencia-cc', 'Existencias y producción del centro'],
+  ['contenedores', 'Producción por contenedor'],
   ['traslados', 'Traslados'],
-  ['inventario-inicial', 'Inventario inicial desde Excel'],
+  ['inventario-inicial', 'Inventario inicial de una tienda'],
   ['inventarios', 'Inventarios completos y selectivos'],
   ['en-vivo', 'Producción en vivo'],
   ['empaque', 'Empaque vs. producción'],
@@ -30,7 +31,7 @@ export function ManualOrganizacion() {
           La administración se hace desde la computadora en <B>new-control-de-costales.vercel.app</B>; las tiendas trabajan con su celular.
         </p>
         <Pasos>
-          <li>El centro de distribución carga la <B>existencia</B> de lo que empaca y luego el <B>traslado</B> (mismo Excel del sistema).</li>
+          <li>El centro de distribución carga sus <B>existencias</B> por contenedor (reporte de existencias) y luego cada <B>traslado</B> (reporte de traslado).</li>
           <li>Los costales quedan <B>en tránsito</B> hacia la sucursal. La tienda escanea cada costal al recibirlo.</li>
           <li>En la tienda, cada empleado <B>inicia</B> el costal al abrirlo y lo <B>finaliza</B> con las piezas que salieron.</li>
           <li>Administración ve faltantes, producción en vivo, diferencias de piezas e inventarios.</li>
@@ -66,7 +67,7 @@ export function ManualOrganizacion() {
           <li><B>Empleados</B> de cada tienda, con su PIN.</li>
           <li><B>Usuarios</B> con correo: supervisores, bodega y auditores.</li>
           <li><B>Celulares</B>: un celular por tienda, activado con su código.</li>
-          <li><B>Existencia:</B> la del centro con su reporte y la de cada tienda con la plantilla de inventario inicial.</li>
+          <li><B>Existencia:</B> la del centro con el reporte de existencias y la de cada tienda con el formato de traslado.</li>
         </Pasos>
       </Seccion>
 
@@ -132,42 +133,60 @@ export function ManualOrganizacion() {
         <p><B>Contraseña</B> genera una nueva temporal si alguien la olvida. También pueden usar &quot;¿Olvidaste tu contraseña?&quot; en la pantalla de inicio.</p>
       </Seccion>
 
-      <Seccion id="existencia-cc" titulo="9. Existencia del centro de distribución">
+      <Seccion id="existencia-cc" titulo="9. Existencias y producción del centro de distribución">
         <p>
-          El centro carga lo que empaca con el <B>mismo reporte de Excel del traslado</B> (4ZTRAS99). Puede hacerlo conforme va empacando: si
-          un archivo trae costales que ya estaban cargados, no se duplican.
+          El centro carga sus costales con el <B>Reporte de Existencias de Costales</B> del sistema (REPEXISCOS26), agrupado por contenedor
+          (<B>EMBARQUE NO.</B>). Se usa para la existencia inicial del centro y, después, para cargar la <B>producción de cada contenedor</B>{' '}
+          conforme se empaca. Si un archivo trae costales que ya estaban cargados, no se duplican.
         </p>
         <Pasos>
-          <li>Menú <B>Traslados</B> → <B>Cargar existencia del centro</B> → elige el Excel.</li>
+          <li>Menú <B>Traslados</B> → <B>Existencias / producción del centro</B> → elige el Excel.</li>
           <li>
-            Revisa cómo se asigna cada sección al producto del sistema: &quot;ZAPATOS&quot; con clasificación B → <B>ZAPATO B</B>; las secciones
-            sin nombre son <B>ROPA</B> de su clasificación. Si una sección no existe (ej. ROPA AB), elige un producto de la lista o deja
-            &quot;Crear producto&quot;.
+            Revisa el resumen: fecha del reporte, contenedores, costales y piezas. En <B>Por contenedor</B> ves cuántos costales y piezas trae
+            cada contenedor.
           </li>
-          <li>Pulsa <B>Confirmar</B>.</li>
+          <li>
+            Revisa cómo se asigna cada producto y clasificación al producto del sistema: &quot;ZAPATOS&quot; con clasificación B →{' '}
+            <B>ZAPATO B</B>. Si no existe (ej. ROPA D, ROPA AB), elige un producto de la lista o deja &quot;Crear producto&quot;.
+          </li>
+          <li>Pulsa <B>Confirmar</B>. Cada costal guarda su contenedor y su fecha de empaque.</li>
         </Pasos>
-        <Figura img="o-existencia-carga" pie="Carga de existencia: cada sección del Excel con su producto" />
+        <Figura img="o-existencia-carga" pie="Existencias del centro: cada producto del Excel con su producto del sistema" />
+        <Figura img="o-existencia-contenedores" pie="Resumen por contenedor del reporte" />
+        <Nota>
+          Los costales que en el reporte ya tienen <B>FEC.ENVIADO</B> no se cargan como existencia: ya salieron del centro. Plantilla: en
+          Traslados, <B>⬇ Existencias / producción del centro</B>.
+        </Nota>
       </Seccion>
 
-      <Seccion id="traslados" titulo="10. Traslados">
+      <Seccion id="contenedores" titulo="10. Producción por contenedor">
+        <p>
+          Menú <B>Producción por contenedor</B>. Muestra cada contenedor con sus costales y piezas empacadas y dónde está cada costal ahora:
+          en el centro, en camino, en la tienda, produciéndose o producido. La barra indica el porcentaje ya producido y <B>Dif. piezas</B>{' '}
+          compara las piezas producidas en tienda contra las empacadas.
+        </p>
+        <Figura img="o-contenedores" pie="Producción por contenedor" />
+      </Seccion>
+
+      <Seccion id="traslados" titulo="11. Traslados">
         <Sub>Cargar un traslado</Sub>
         <Pasos>
-          <li>Menú <B>Traslados</B> → <B>Cargar traslado (Excel)</B> → elige el reporte del traslado.</li>
-          <li>Revisa número, fecha, bodega de entrada, costales, piezas y valor. La app avisa si los subtotales no cuadran o si un producto trae piezas distintas a su estándar.</li>
+          <li>Menú <B>Traslados</B> → <B>Cargar traslado</B> → elige el reporte del traslado (COSTAL # · PIEZAS · PESO).</li>
+          <li>Revisa número, fecha, bodega de entrada, costales y piezas. La app avisa si los subtotales no cuadran o si un producto trae piezas distintas a su estándar.</li>
           <li>Pulsa <B>Confirmar</B>. Los costales salen de la existencia del centro y quedan <B>en tránsito</B> hacia la sucursal.</li>
         </Pasos>
         <Figura img="o-traslado-carga" pie="Revisión del traslado antes de confirmar" />
         <Nota tipo="aviso">
           El traslado no se carga si ya se cargó ese número, si algún costal ya se envió antes, si ninguna sucursal tiene esa bodega de entrada o
-          si los totales no coinciden con el reporte.
+          si el total de piezas no coincide con el reporte. Plantilla: en Traslados, <B>⬇ Traslado / existencia inicial de tienda</B>.
         </Nota>
         <Sub>Seguimiento y faltantes</Sub>
         <p>
-          La lista muestra cada traslado con su recepción: <B>En tránsito</B>, <B>Completo</B> o <B>Faltan N</B> con su valor en quetzales. Al
+          La lista muestra cada traslado con su recepción: <B>En tránsito</B>, <B>Completo</B> o <B>Faltan N</B> costales con sus piezas. Al
           abrirlo, marca <B>Ver solo los que no han llegado</B> para la lista de faltantes.
         </p>
         <Figura img="o-traslados" pie="Traslados con su avance de recepción" />
-        <Figura img="o-traslado-detalle" pie="Costales que no han llegado y su valor" />
+        <Figura img="o-traslado-detalle" pie="Costales y piezas que no han llegado" />
         <Sub>Costales que no estaban en la existencia del centro</Sub>
         <p>
           Se envían igual, para no rehacer el trabajo, pero aparece una alerta roja. Abre el traslado, revisa los códigos marcados, escribe una
@@ -180,34 +199,26 @@ export function ManualOrganizacion() {
         </p>
       </Seccion>
 
-      <Seccion id="inventario-inicial" titulo="11. Inventario inicial desde Excel">
+      <Seccion id="inventario-inicial" titulo="12. Inventario inicial de una tienda">
         <p>
-          Carga de una sola vez los costales que una tienda ya tiene. Se hace desde la computadora: menú <B>Inventarios</B> →{' '}
-          <B>Inventario inicial (Excel)</B>. Pueden hacerlo el administrador y el supervisor de la tienda.
+          Carga de una sola vez los costales que una tienda ya tiene, con el <B>mismo formato del traslado</B> (reporte del sistema o la
+          plantilla). Menú <B>Inventarios</B> → <B>Inventario inicial (Excel)</B>. Pueden hacerlo el administrador y el supervisor de la tienda.
         </p>
         <Pasos>
-          <li>Elige la <B>sucursal</B> y pulsa <B>Descargar plantilla</B>.</li>
-          <li>En la hoja <B>Existencia</B>, pega un costal por fila desde la fila 2 (columnas abajo).</li>
-          <li>Guarda el archivo y pulsa <B>Subir Excel lleno</B>.</li>
-          <li>Revisa el resumen por producto. Si hay errores, corrígelos en el Excel y vuelve a subirlo.</li>
+          <li>Elige el <B>número de tienda</B>. Si no tienes el reporte del sistema, pulsa <B>Descargar plantilla</B> y llénala.</li>
+          <li>
+            Pulsa <B>Subir Excel</B>. La <B>BODEGA DE ENTRADA</B> del archivo debe ser la de esa tienda; si no coincide, la app avisa y pide
+            confirmar que el archivo sí es de esa tienda.
+          </li>
+          <li>Elige el producto del sistema para cada producto y clasificación del archivo.</li>
           <li>Pulsa <B>Confirmar</B>. Los costales quedan en el stock de la tienda.</li>
         </Pasos>
-        <Tabla
-          cols={['Columna', 'Obligatoria', 'Ejemplo']}
-          filas={[
-            ['CODIGO', 'Sí', 'EMP02215259'],
-            ['PRODUCTO', 'Sí, como en la hoja Productos', 'ROPA A'],
-            ['PIEZAS', 'No: vacía usa las piezas por costal del producto', '100'],
-            ['PRECIO', 'No', '745'],
-            ['PESO', 'No', '68.2'],
-          ]}
-        />
-        <Figura img="o-inicial" pie="Elegir la sucursal y descargar la plantilla" />
-        <Figura img="o-inicial-subido" pie="Resumen del Excel antes de confirmar" />
+        <Figura img="o-inicial" pie="Elegir el número de tienda y descargar la plantilla" />
+        <Figura img="o-inicial-subido" pie="Aviso de bodega distinta y productos antes de confirmar" />
         <Nota>Se puede cargar por partes: los costales que ya estaban cargados en esa misma tienda se omiten.</Nota>
       </Seccion>
 
-      <Seccion id="inventarios" titulo="12. Inventarios completos y selectivos">
+      <Seccion id="inventarios" titulo="13. Inventarios completos y selectivos">
         <p>El supervisor abre el inventario en la computadora; los empleados escanean en el celular de la tienda; el sistema compara contra el stock que había al abrirlo.</p>
         <Pasos>
           <li>Menú <B>Inventarios</B> → <B>+ Inventario</B> → elige la tienda.</li>
@@ -233,12 +244,12 @@ export function ManualOrganizacion() {
         <p>Si los faltantes se confirman, el administrador pulsa <B>Dar de baja los faltantes</B> y salen del stock. Solo puede haber un inventario abierto por tienda.</p>
       </Seccion>
 
-      <Seccion id="en-vivo" titulo="13. Producción en vivo">
+      <Seccion id="en-vivo" titulo="14. Producción en vivo">
         <p>Muestra quién está produciendo qué costal en este momento, en cada tienda, y cuántos costales se terminaron hoy. Se actualiza sola.</p>
         <Figura img="o-envivo" pie="Producción en vivo por tienda" />
       </Seccion>
 
-      <Seccion id="empaque" titulo="14. Empaque vs. producción">
+      <Seccion id="empaque" titulo="15. Empaque vs. producción">
         <p>
           Compara las piezas con que se empacó cada costal contra las piezas que la tienda anotó al finalizarlo. Lo ven <B>solo administradores
           y auditores</B>. Una diferencia de <B>5 piezas o más</B> se marca como alerta.
@@ -247,12 +258,12 @@ export function ManualOrganizacion() {
         <p>Filtra por tienda y por fechas; marca <B>Solo alertas</B> para ver únicamente los costales con diferencia grande.</p>
       </Seccion>
 
-      <Seccion id="costales" titulo="15. Costales">
+      <Seccion id="costales" titulo="16. Costales">
         <p>Lista de todos los costales con filtro por tienda y estado (en stock, en producción, producido, en tránsito), con un resumen por producto y búsqueda por código.</p>
         <Figura img="o-costales" pie="Costales en stock con resumen por producto" />
       </Seccion>
 
-      <Seccion id="retornos" titulo="16. Retornos de saldo">
+      <Seccion id="retornos" titulo="17. Retornos de saldo">
         <p>
           Cuando una tienda envía un saco de saldo, aparece aquí con su código SAL-…. Al llegar al centro, ábrelo, anota las piezas recibidas
           por producto (y el peso si quieres) y confírmalo. Si las piezas no coinciden, queda marcado <B>Con diferencia</B>.
@@ -260,7 +271,7 @@ export function ManualOrganizacion() {
         <Figura img="o-retornos" pie="Retornos de saldo en tránsito" />
       </Seccion>
 
-      <Seccion id="soporte" titulo="17. Acceso de soporte">
+      <Seccion id="soporte" titulo="18. Acceso de soporte">
         <p>
           Si necesitas que el equipo de la plataforma revise algo, dale acceso de <B>solo lectura</B> por un tiempo: menú{' '}
           <B>Acceso de soporte</B> → duración (2 h, 8 h, 1, 3 o 7 días) y motivo → <B>Dar acceso</B>. Puedes quitarlo cuando quieras y ver cada ingreso.
@@ -268,15 +279,15 @@ export function ManualOrganizacion() {
         <Figura img="o-soporte" pie="Accesos otorgados e ingresos por soporte" />
       </Seccion>
 
-      <Seccion id="preguntas" titulo="18. Preguntas frecuentes">
+      <Seccion id="preguntas" titulo="19. Preguntas frecuentes">
         <Tabla
           cols={['Pregunta', 'Respuesta']}
           filas={[
             ['No veo una opción del menú', 'El menú depende de tu rol. Revisa que estés en tu organización en el selector de área y recarga la página.'],
             ['“Ninguna sucursal tiene la bodega de entrada B102”', 'En Sucursales, edita la tienda y escribe B102 en Bodega en el sistema.'],
             ['“El traslado ya fue cargado”', 'Ese número ya está en Traslados. Si se cargó mal y nada se ha recibido, anúlalo y súbelo de nuevo.'],
-            ['Un producto del Excel no existe (VARIOS C, ROPA AB)', 'En el resumen elige el producto correcto o deja Crear producto; luego ajusta sus piezas en Productos.'],
-            ['¿El inventario inicial se hace en el celular?', 'Lo normal es desde la computadora con la plantilla de Excel. El celular sirve para costales sueltos.'],
+            ['Un producto del Excel no existe (ROPA D, ROPA AB)', 'En el resumen elige el producto correcto o deja Crear producto; luego ajusta sus piezas en Productos.'],
+            ['¿El inventario inicial se hace en el celular?', 'Lo normal es desde la computadora con el formato de traslado. El celular sirve para costales sueltos.'],
             ['Un empleado olvidó su PIN', 'En Empleados, pulsa PIN junto a su nombre y asígnale uno nuevo.'],
             ['Olvidé mi contraseña', 'En la pantalla de inicio, ¿Olvidaste tu contraseña? te envía un correo para crear una nueva.'],
           ]}

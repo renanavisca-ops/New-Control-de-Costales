@@ -18,6 +18,7 @@ const MENU_ORG: Grupo[] = [
       { href: '/', etiqueta: 'Inicio', icono: '🏠', roles: TODOS, soporte: true },
       { href: '/admin/en-vivo', etiqueta: 'Producción en vivo', icono: '✂️', roles: ['ADMIN_ORG', 'SUPERVISOR', 'AUDITOR'], soporte: true },
       { href: '/admin/traslados', etiqueta: 'Traslados', icono: '🚚', roles: ['ADMIN_ORG', 'BODEGA', 'SUPERVISOR', 'AUDITOR'], soporte: true },
+      { href: '/admin/contenedores', etiqueta: 'Producción por contenedor', icono: '🚢', roles: ['ADMIN_ORG', 'BODEGA', 'AUDITOR'], soporte: true },
       { href: '/admin/costales', etiqueta: 'Costales', icono: '📦', roles: TODOS, soporte: true },
       { href: '/admin/produccion', etiqueta: 'Empaque vs. producción', icono: '📊', roles: ['ADMIN_ORG', 'AUDITOR'], soporte: true },
       { href: '/admin/inventarios', etiqueta: 'Inventarios', icono: '🔍', roles: ['ADMIN_ORG', 'SUPERVISOR', 'AUDITOR'], soporte: true },
