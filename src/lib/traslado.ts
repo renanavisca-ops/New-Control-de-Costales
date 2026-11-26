@@ -33,6 +33,7 @@ export type Traslado = {
   fecha: string | null; // yyyy-mm-dd
   bodegaEntrada: string;
   bodegaSalida: string;
+  documento?: string;
   costales: CostalLeido[];
   totalPiezas: number | null;
   totalCostales: number | null;
@@ -94,11 +95,12 @@ export function leerTraslado(filas: unknown[][]): Traslado {
     if (!col) {
       let m;
       if ((m = A.match(/^NUMERO:\s*(\S+)/))) t.numero = m[1];
+      else if ((m = A.match(/^TIPO DOCUMENTO:\s*(\S+)/))) t.documento = m[1];
       else if ((m = a.match(/^REFERENCIA:\s*(.*)$/i))) t.referencia = m[1].trim();
       else if (A.startsWith('FECHA')) t.fecha = fechaTexto(A);
-      else if ((m = A.match(/BODEGA DE ENTRADA:\s*(\S+)(?:\s+SALIDA:\s*(\S+))?/))) {
-        t.bodegaEntrada = m[1];
-        t.bodegaSalida = m[2] ?? '';
+      else if ((m = A.match(/BODEGA DE ENTRADA:\s*(.+?)\s*(?:SALIDA:\s*(.+?))?\s*$/))) {
+        t.bodegaEntrada = m[1].trim();
+        t.bodegaSalida = (m[2] ?? '').trim();
       } else if (A.startsWith('COSTAL')) {
         const enc = fila.map((c) => sinAcentos(texto(c)));
         const pz = enc.findIndex((h) => h.startsWith('PIEZA'));
