@@ -65,6 +65,7 @@ export default function ProduccionCliente({ roles }: { roles: AsignacionRol[] })
   const totalEmpaque = conEmpaque.reduce((a, f) => a + (f.piezas_empaque ?? 0), 0);
   const totalProducido = conEmpaque.reduce((a, f) => a + (f.piezas_producidas ?? 0), 0);
 
+  const nombreTienda = (id: string) => tiendas.find((t) => t.id === id)?.codigo ?? '';
   const agrupar = (clave: (f: Fila) => string) => {
     const m = new Map<string, { costales: number; dif: number; alertas: number }>();
     conEmpaque.forEach((f) => {
@@ -77,9 +78,9 @@ export default function ProduccionCliente({ roles }: { roles: AsignacionRol[] })
     });
     return Array.from(m.entries()).sort((a, b) => a[1].dif - b[1].dif);
   };
-  const porEmpleado = useMemo(() => agrupar((f) => (f.empleado ? `${f.empleado.codigo} · ${f.empleado.nombre}` : '—')), [conEmpaque]); // eslint-disable-line react-hooks/exhaustive-deps
+  const porEmpleado = useMemo(() => agrupar((f) => `${f.empleado ? `${f.empleado.codigo} · ${f.empleado.nombre}` : '—'} (${nombreTienda(f.tienda_id)})`), [conEmpaque, tiendas]); // eslint-disable-line react-hooks/exhaustive-deps
+  const porTienda = useMemo(() => agrupar((f) => { const t = tiendas.find((x) => x.id === f.tienda_id); return t ? `${t.codigo} · ${t.nombre}` : '—'; }), [conEmpaque, tiendas]); // eslint-disable-line react-hooks/exhaustive-deps
   const porProducto = useMemo(() => agrupar((f) => f.costales?.categorias?.nombre ?? 'SIN PRODUCTO'), [conEmpaque]); // eslint-disable-line react-hooks/exhaustive-deps
-  const nombreTienda = (id: string) => tiendas.find((t) => t.id === id)?.codigo ?? '';
   const colorDif = (d: number | null) => (d === null ? 'text-gray-400' : Math.abs(d) >= UMBRAL_ALERTA ? 'text-red-600' : d === 0 ? 'text-gray-700' : 'text-orange-600');
   const signo = (d: number) => (d > 0 ? `+${d}` : `${d}`);
 
@@ -120,8 +121,9 @@ export default function ProduccionCliente({ roles }: { roles: AsignacionRol[] })
         <Kpi etiqueta={`Alertas (±${UMBRAL_ALERTA}+)`} valor={String(alertas.length)} rojo={alertas.length > 0} />
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <Tabla titulo="Por empleado" datos={porEmpleado} />
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+        <Tabla titulo="Por tienda" datos={porTienda} />
+        <Tabla titulo="Por empleado (tienda)" datos={porEmpleado} />
         <Tabla titulo="Por producto" datos={porProducto} />
       </div>
 

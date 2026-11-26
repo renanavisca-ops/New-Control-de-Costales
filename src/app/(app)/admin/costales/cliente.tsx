@@ -4,7 +4,7 @@ import { supabaseNavegador } from '@/lib/supabase/client';
 import { cargarOrgsPropias } from '@/lib/datos';
 import type { AsignacionRol, Organizacion, Tienda } from '@/lib/tipos';
 import { SelectorOrg, useOrgActiva } from '@/components/selector-org';
-import { Entrada, Insignia, Selector, Tarjeta, Titulo } from '@/components/ui';
+import { Aviso, Boton, Campo, Entrada, Insignia, Modal, Selector, Tarjeta, Titulo } from '@/components/ui';
 
 type Fila = {
   id: string;
@@ -14,8 +14,11 @@ type Fila = {
   piezas_empaque: number | null;
   recibido_at: string | null;
   tienda_id: string;
-  categorias: { nombre: string } | null;
+  categoria_id: string | null;
+  categorias: { nombre: string; organizacion_id: string } | null;
 };
+type Cat = { id: string; nombre: string; organizacion_id: string };
+const CORREGIBLE_CODIGO = ['INVENTARIO_INICIAL', 'RECEPCION_MANUAL'];
 
 const ESTADOS = ['EN_TIENDA', 'EN_PRODUCCION', 'PRODUCIDO', 'EN_TRANSITO', 'VENDIDO'];
 const NOMBRE_ESTADO: Record<string, string> = {
@@ -37,10 +40,13 @@ export default function CostalesCliente({ roles }: { roles: AsignacionRol[] }) {
   const [estado, setEstado] = useState('EN_TIENDA');
   const [busqueda, setBusqueda] = useState('');
   const [filas, setFilas] = useState<Fila[]>([]);
+  const [cats, setCats] = useState<Cat[]>([]);
+  const [editando, setEditando] = useState<Fila | null>(null);
 
   useEffect(() => {
     cargarOrgsPropias(roles).then(setOrgs);
-  }, [roles]);
+    sb.from('categorias').select('id, nombre, organizacion_id').eq('activa', true).order('nombre').then(({ data }: { data: unknown }) => setCats((data as Cat[]) || []));
+  }, [roles]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cargar = useCallback(async () => {
     if (!orgId) return;
@@ -48,7 +54,7 @@ export default function CostalesCliente({ roles }: { roles: AsignacionRol[] }) {
     setTiendas((t as Tienda[]) || []);
     let q = sb
       .from('costales')
-      .select('id, codigo, estado, origen, piezas_empaque, recibido_at, tienda_id, categorias(nombre)')
+      .select('id, codigo, estado, origen, piezas_empaque, recibido_at, tienda_id, categoria_id, categorias(nombre, organizacion_id)')
       .eq('organizacion_id', orgId)
       .order('recibido_at', { ascending: false })
       .limit(1000);
@@ -111,10 +117,86 @@ export default function CostalesCliente({ roles }: { roles: AsignacionRol[] }) {
             <div className="text-right">
               <Insignia color={COLOR[f.estado] ?? 'gray'}>{NOMBRE_ESTADO[f.estado] ?? f.estado}</Insignia>
               <p className="mt-1 text-[11px] text-gray-400">{f.recibido_at ? new Date(f.recibido_at).toLocaleDateString() : ''}</p>
+              {f.estado !== 'ANULADO' && f.estado !== 'VENDIDO' && (
+                <button onClick={() => setEditando(f)} className="mt-1 text-xs font-bold text-indigo-600 hover:underline">Corregir</button>
+              )}
             </div>
           </Tarjeta>
         ))}
       </div>
+
+      {editando && (
+        <Corregir
+          costal={editando}
+          cats={cats.filter((c) => !editando.categorias || c.organizacion_id === editando.categorias.organizacion_id)}
+          onCerrar={() => setEditando(null)}
+          onListo={() => {
+            setEditando(null);
+            cargar();
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+function Corregir({ costal, cats, onCerrar, onListo }: { costal: Fila; cats: Cat[]; onCerrar: () => void; onListo: () => void }) {
+  const sb = supabaseNavegador();
+  const [codigo, setCodigo] = useState(costal.codigo);
+  const [cat, setCat] = useState(costal.categoria_id ?? '');
+  const [piezas, setPiezas] = useState(costal.piezas_empaque ? String(costal.piezas_empaque) : '');
+  const [motivo, setMotivo] = useState('');
+  const [error, setError] = useState('');
+  const [ocupado, setOcupado] = useState(false);
+  const puedeCodigo = CORREGIBLE_CODIGO.includes(costal.origen);
+  const puedeEliminar = puedeCodigo && costal.estado === 'EN_TIENDA';
+
+  const ejecutar = async (fn: 'corregir_costal' | 'eliminar_costal') => {
+    setOcupado(true);
+    setError('');
+    const args =
+      fn === 'corregir_costal'
+        ? { p_costal: costal.id, p_codigo: codigo, p_categoria: cat || null, p_piezas: piezas ? Number(piezas) : null, p_motivo: motivo }
+        : { p_costal: costal.id, p_motivo: motivo };
+    const { data, error: e } = await sb.rpc(fn, args);
+    setOcupado(false);
+    const r = data as { ok: boolean; error?: string } | null;
+    if (e || !r?.ok) return setError(r?.error ?? e?.message ?? 'No se pudo guardar.');
+    onListo();
+  };
+
+  return (
+    <Modal titulo={`Corregir costal ${costal.codigo}`} onCerrar={onCerrar}>
+      <div className="space-y-3">
+        <p className="text-xs text-gray-500">Úsalo cuando la cámara leyó mal el código o se eligió un producto equivocado. El cambio queda registrado.</p>
+        <Campo etiqueta="Código (como dice la etiqueta)">
+          <Entrada value={codigo} disabled={!puedeCodigo} onChange={(e) => setCodigo(e.target.value.toUpperCase())} className="font-mono font-bold" />
+        </Campo>
+        {!puedeCodigo && <p className="text-[11px] text-gray-400">El código de costales enviados por el centro no se cambia aquí.</p>}
+        <Campo etiqueta="Producto">
+          <Selector value={cat} onChange={(e) => setCat(e.target.value)}>
+            <option value="">Sin producto</option>
+            {cats.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+          </Selector>
+        </Campo>
+        <Campo etiqueta="Piezas de empaque">
+          <Entrada inputMode="numeric" value={piezas} onChange={(e) => setPiezas(e.target.value.replace(/\D/g, ''))} />
+        </Campo>
+        <Campo etiqueta="Motivo (opcional)">
+          <Entrada value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ej. la cámara leyó mal el código" />
+        </Campo>
+        {error && <Aviso tipo="error">{error}</Aviso>}
+        <Boton className="w-full" disabled={ocupado} onClick={() => ejecutar('corregir_costal')}>Guardar corrección</Boton>
+        {puedeEliminar && (
+          <button
+            disabled={ocupado}
+            onClick={() => confirm(`¿Eliminar el costal ${costal.codigo}? Úsalo solo si se registró por error.`) && ejecutar('eliminar_costal')}
+            className="w-full rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-600"
+          >
+            Eliminar registro equivocado
+          </button>
+        )}
+      </div>
+    </Modal>
   );
 }

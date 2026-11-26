@@ -119,8 +119,8 @@ export function ManualTienda() {
         </p>
         <Pasos>
           <li>Toca <B>Inventario inicial</B> y entra con tu código y PIN.</li>
-          <li>Elige el <B>producto</B> (y las piezas si las sabes) y escanea el costal.</li>
-          <li>Repite con cada costal. Si son de otro producto, cambia el producto antes de escanear.</li>
+          <li>Escanea el costal. Aparece el <B>código leído en grande</B>: compáralo con la etiqueta. Si no coincide, pulsa <B>No coincide, corregir código</B>.</li>
+          <li>Elige el <B>producto</B> y escribe las <B>piezas</B> que dice la etiqueta (queda elegido el último producto: revísalo cada vez) y pulsa <B>Registrar</B>.</li>
         </Pasos>
         <Figura img="t-inicial" pie="Inventario inicial costal por costal" movil />
       </Seccion>
@@ -173,7 +173,8 @@ export function ManualTienda() {
             ['El celular pide un código de activación', 'El celular se desactivó. Pide al administrador un código nuevo (Celulares).'],
             ['Olvidé mi PIN o mi código', 'Pide al administrador o supervisor que te asigne un PIN nuevo.'],
             ['“Demasiados intentos”', 'Espera 10 minutos y vuelve a intentar con el PIN correcto.'],
-            ['La cámara no lee el código', 'Limpia la etiqueta, acerca o aleja el celular, o escribe el código a mano.'],
+            ['La cámara no lee el código', 'La cámara debe leer el mismo código 3 veces para aceptarlo: mantén quieto el celular a 15–25 cm, usa la luz 🔦 o el zoom. Si no, escribe el código a mano.'],
+            ['Se registró un código o producto equivocado', 'Avisa al supervisor: lo corrige o elimina en Costales → Corregir.'],
             ['“El costal ya está en producción”', 'Otra persona ya lo inició. Revisa en Mis costales en proceso o pregunta al compañero.'],
             ['“Costal registrado en otra tienda”', 'Ese costal no es de tu tienda. Sepáralo y avisa al supervisor.'],
           ]}
