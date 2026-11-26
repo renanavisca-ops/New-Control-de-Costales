@@ -1,13 +1,9 @@
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import type { Metadata } from 'next';
 import { MANUALES, type TipoManual } from '../datos';
 import Volver from '../volver';
-
-export const dynamicParams = false;
-export function generateStaticParams() {
-  return Object.keys(MANUALES).map((tipo) => ({ tipo }));
-}
+import { manualesPermitidos, rutaPdf } from '../acceso';
 
 export async function generateMetadata({ params }: { params: Promise<{ tipo: string }> }): Promise<Metadata> {
   const m = MANUALES[(await params).tipo as TipoManual];
@@ -18,15 +14,17 @@ export default async function PaginaManual({ params }: { params: Promise<{ tipo:
   const tipo = (await params).tipo as TipoManual;
   const m = MANUALES[tipo];
   if (!m) notFound();
+  const permitidos = await manualesPermitidos();
+  if (!permitidos.includes(tipo)) redirect(tipo === 'tienda' ? '/manual/tienda' : '/login');
   const Contenido = m.Contenido;
   return (
     <main className="manual mx-auto w-full max-w-4xl px-4 py-8 sm:px-8 sm:py-12">
       <div className="no-imprimir mb-6 flex flex-wrap items-center justify-between gap-3">
         <div className="flex gap-5">
           <Volver />
-          <Link href="/manual" className="text-sm font-bold text-gray-500">Todos los manuales</Link>
+          {permitidos.length > 1 && <Link href="/manual" className="text-sm font-bold text-gray-500">Todos los manuales</Link>}
         </div>
-        <a href={`/manuales/${m.pdf}`} download className="rounded-2xl bg-indigo-600 px-5 py-3 text-sm font-black text-white shadow-lg shadow-indigo-200">
+        <a href={rutaPdf(tipo)} download className="rounded-2xl bg-indigo-600 px-5 py-3 text-sm font-black text-white shadow-lg shadow-indigo-200">
           ⬇ Descargar PDF
         </a>
       </div>
