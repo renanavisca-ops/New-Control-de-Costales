@@ -63,8 +63,29 @@ const MENU_PLATAFORMA: Grupo[] = [
   },
 ];
 
+/** Menú del área del centro de distribución. */
+const MENU_CENTRO: Grupo[] = [
+  {
+    titulo: 'Centro de distribución',
+    items: [
+      { href: '/centro', etiqueta: 'Resumen', icono: '🏭', roles: [], soporte: true },
+      { href: '/centro/traslados', etiqueta: 'Existencias y traslados', icono: '🚚', roles: [], soporte: true },
+      { href: '/centro/contenedores', etiqueta: 'Producción por contenedor', icono: '🚢', roles: [], soporte: true },
+      { href: '/centro/tiendas', etiqueta: 'Stock de las tiendas', icono: '🏬', roles: [], soporte: true },
+      { href: '/centro/retornos', etiqueta: 'Retornos de saldo', icono: '↩️', roles: [], soporte: true },
+      { href: '/centro/inventario', etiqueta: 'Inventario del centro', icono: '🔍', roles: [], soporte: true },
+    ],
+  },
+  {
+    titulo: 'Ayuda',
+    items: [{ href: '/manual/organizacion', etiqueta: 'Manual de uso', icono: '📘', roles: [], soporte: true }],
+  },
+];
+
 const etiquetaOpcion = (o: OpcionArea) =>
-  o.modo === 'PLATAFORMA'
+  o.modo === 'CENTRO'
+    ? `🏭 ${o.nombre}`
+    : o.modo === 'PLATAFORMA'
     ? '★ Mi plataforma'
     : o.modo === 'SOPORTE'
       ? `🛟 ${o.nombre} (soporte)`
@@ -89,11 +110,12 @@ export default function Navegacion({
   useEffect(() => setAbierto(false), [ruta]);
 
   const enPlataforma = activa?.modo === 'PLATAFORMA';
-  const grupos = (enPlataforma ? MENU_PLATAFORMA : MENU_ORG)
+  const enCentro = activa?.modo === 'CENTRO';
+  const grupos = (enPlataforma ? MENU_PLATAFORMA : enCentro ? MENU_CENTRO : MENU_ORG)
     .map((g) => ({
       ...g,
       items: g.items.filter((i) =>
-        enPlataforma ? true : activa?.modo === 'SOPORTE' ? i.soporte : (activa?.roles ?? []).some((r) => i.roles.includes(r)),
+        enPlataforma || enCentro ? true : activa?.modo === 'SOPORTE' ? i.soporte : (activa?.roles ?? []).some((r) => i.roles.includes(r)),
       ),
     }))
     .filter((g) => g.items.length);
@@ -101,7 +123,7 @@ export default function Navegacion({
   const cambiarArea = (id: string) => {
     fijarAreaCliente(id);
     setAbierto(false);
-    router.push(id === AREA_PLATAFORMA ? '/plataforma' : '/');
+    router.push(id === AREA_PLATAFORMA ? '/plataforma' : id.startsWith('centro:') ? '/centro' : '/');
     router.refresh();
   };
 
@@ -115,14 +137,14 @@ export default function Navegacion({
     opciones.length === 0 ? null : (
       <div className="px-4 pt-4">
         <p className="px-1 pb-1 text-[10px] font-black uppercase tracking-widest text-gray-400">
-          {enPlataforma ? 'Área: plataforma' : 'Área: organización'}
+          {enPlataforma ? 'Área: plataforma' : enCentro ? 'Área: centro de distribución' : 'Área: organización'}
         </p>
         {opciones.length > 1 ? (
           <select
             aria-label="Cambiar de área"
             value={activa?.id ?? ''}
             onChange={(e) => cambiarArea(e.target.value)}
-            className={`w-full rounded-2xl border-2 p-2.5 text-sm font-bold outline-none ${enPlataforma ? 'border-amber-300 bg-amber-50' : 'border-indigo-100 bg-indigo-50'}`}
+            className={`w-full rounded-2xl border-2 p-2.5 text-sm font-bold outline-none ${enPlataforma ? 'border-amber-300 bg-amber-50' : enCentro ? 'border-emerald-300 bg-emerald-50' : 'border-indigo-100 bg-indigo-50'}`}
           >
             {opciones.map((o) => (
               <option key={o.id} value={o.id}>
@@ -143,13 +165,13 @@ export default function Navegacion({
           <p className="px-3 pb-1 text-[10px] font-black uppercase tracking-widest text-gray-400">{g.titulo}</p>
           <div className="space-y-1">
             {g.items.map((i) => {
-              const activo = i.href === '/' || i.href === '/plataforma' ? ruta === i.href : ruta.startsWith(i.href);
+              const activo = i.href === '/' || i.href === '/plataforma' || i.href === '/centro' ? ruta === i.href : ruta.startsWith(i.href);
               return (
                 <Link
                   key={i.href}
                   href={i.href}
                   className={`flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm font-bold transition ${
-                    activo ? (enPlataforma ? 'bg-amber-500 text-white shadow' : 'bg-indigo-600 text-white shadow') : 'text-gray-600 hover:bg-gray-100'
+                    activo ? (enPlataforma ? 'bg-amber-500 text-white shadow' : enCentro ? 'bg-emerald-600 text-white shadow' : 'bg-indigo-600 text-white shadow') : 'text-gray-600 hover:bg-gray-100'
                   }`}
                 >
                   <span className="w-5 text-center">{i.icono}</span>

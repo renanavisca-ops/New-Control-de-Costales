@@ -5,6 +5,7 @@ import { supabaseServidor } from '@/lib/supabase/server';
 export default async function InicioPage() {
   const { contexto, activa } = await obtenerArea();
   if (activa?.modo === 'PLATAFORMA') redirect('/plataforma');
+  if (activa?.modo === 'CENTRO') redirect('/centro');
   if (!activa || activa.modo === 'SIN_ACCESO') return null; // la franja superior explica la falta de acceso
 
   const sb = await supabaseServidor();
