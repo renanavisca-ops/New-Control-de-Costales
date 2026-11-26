@@ -74,6 +74,15 @@ export default function InventariosCliente({ roles }: { roles: AsignacionRol[] }
     setInventarios((i.data as Inventario[]) || []);
   }, [roles, sb]);
 
+  // Abrir el inventario inicial de una sucursal desde Sucursales (?inicial=<id>)
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get('inicial');
+    if (id && tiendas.some((t) => t.id === id)) {
+      setInicial({ tienda: id });
+      window.history.replaceState(null, '', '/admin/inventarios');
+    }
+  }, [tiendas]);
+
   useEffect(() => {
     cargar();
   }, [cargar]);

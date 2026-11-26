@@ -93,6 +93,11 @@ export default function TiendasCliente({ roles, orgFijaId }: { roles: Asignacion
                   </div>
                   <p className="mt-1 text-xs text-gray-400">{t.documento_nombre || t.direccion || 'Sin dirección'}</p>
                 </div>
+                {editable && !t.es_central && !t.es_venta_local && (
+                  <a href={`/admin/inventarios?inicial=${t.id}`} className="shrink-0 rounded-2xl bg-gray-900 px-3 py-2 text-xs font-black text-white">
+                    📄 Inventario inicial
+                  </a>
+                )}
                 {editable && (
                   <Boton variante="suave" onClick={() => { setForm({ id: t.id, codigo: t.codigo, bodega: t.bodega || '', documento: t.documento_traslado || '', ventaLocal: !!t.es_venta_local, nombre: t.nombre, direccion: t.direccion || '', es_central: t.es_central, activa: t.activa }); setError(''); }}>
                     Editar
