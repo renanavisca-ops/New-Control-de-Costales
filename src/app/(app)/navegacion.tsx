@@ -72,6 +72,7 @@ const MENU_CENTRO: Grupo[] = [
       { href: '/centro/traslados', etiqueta: 'Existencias y traslados', icono: '🚚', roles: [], soporte: true },
       { href: '/centro/contenedores', etiqueta: 'Producción por contenedor', icono: '🚢', roles: [], soporte: true },
       { href: '/centro/tiendas', etiqueta: 'Stock de las tiendas', icono: '🏬', roles: [], soporte: true },
+      { href: '/centro/ventas', etiqueta: 'Ventas locales', icono: '🛒', roles: [], soporte: true },
       { href: '/centro/retornos', etiqueta: 'Retornos de saldo', icono: '↩️', roles: [], soporte: true },
       { href: '/centro/inventario', etiqueta: 'Inventario del centro', icono: '🔍', roles: [], soporte: true },
     ],

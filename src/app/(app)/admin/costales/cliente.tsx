@@ -17,15 +17,16 @@ type Fila = {
   categorias: { nombre: string } | null;
 };
 
-const ESTADOS = ['EN_TIENDA', 'EN_PRODUCCION', 'PRODUCIDO', 'EN_TRANSITO'];
+const ESTADOS = ['EN_TIENDA', 'EN_PRODUCCION', 'PRODUCIDO', 'EN_TRANSITO', 'VENDIDO'];
 const NOMBRE_ESTADO: Record<string, string> = {
   EN_TIENDA: 'En stock',
   EN_PRODUCCION: 'En producción',
   PRODUCIDO: 'Producido',
   EN_TRANSITO: 'En tránsito',
   ANULADO: 'Anulado',
+  VENDIDO: 'Vendido (venta local)',
 };
-const COLOR: Record<string, 'green' | 'indigo' | 'gray' | 'red'> = { EN_TIENDA: 'green', EN_PRODUCCION: 'indigo', PRODUCIDO: 'gray', EN_TRANSITO: 'indigo', ANULADO: 'red' };
+const COLOR: Record<string, 'green' | 'indigo' | 'gray' | 'red'> = { EN_TIENDA: 'green', EN_PRODUCCION: 'indigo', PRODUCIDO: 'gray', EN_TRANSITO: 'indigo', ANULADO: 'red', VENDIDO: 'gray' };
 
 export default function CostalesCliente({ roles }: { roles: AsignacionRol[] }) {
   const sb = supabaseNavegador();

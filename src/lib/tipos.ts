@@ -55,6 +55,7 @@ export interface Tienda {
   direccion: string | null;
   bodega: string | null;
   documento_traslado?: string | null;
+  es_venta_local?: boolean;
   documento_nombre?: string | null;
   es_central: boolean;
   activa: boolean;

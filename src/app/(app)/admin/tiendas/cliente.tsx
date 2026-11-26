@@ -6,7 +6,7 @@ import { puedeAdministrarOrg, type AsignacionRol, type Organizacion, type Tienda
 import { SelectorOrg, useOrgActiva } from '@/components/selector-org';
 import { Aviso, Boton, Campo, Entrada, Insignia, Modal, Tarjeta, Titulo } from '@/components/ui';
 
-type Form = { id?: string; codigo: string; bodega: string; documento: string; nombre: string; direccion: string; es_central: boolean; activa: boolean };
+type Form = { id?: string; codigo: string; bodega: string; documento: string; ventaLocal: boolean; nombre: string; direccion: string; es_central: boolean; activa: boolean };
 
 export default function TiendasCliente({ roles, orgFijaId }: { roles: AsignacionRol[]; orgFijaId?: string }) {
   const sb = supabaseNavegador();
@@ -46,6 +46,7 @@ export default function TiendasCliente({ roles, orgFijaId }: { roles: Asignacion
       codigo: form.codigo.trim().toUpperCase(),
       bodega: form.bodega.trim().toUpperCase() || null,
       documento_traslado: form.documento.trim().toUpperCase() || null,
+      es_venta_local: !form.es_central && form.ventaLocal,
       nombre: form.nombre.trim(),
       direccion: form.direccion.trim() || null,
       es_central: form.es_central,
@@ -64,7 +65,7 @@ export default function TiendasCliente({ roles, orgFijaId }: { roles: Asignacion
   return (
     <div>
       <Titulo
-        accion={editable && <Boton onClick={() => { setForm({ codigo: '', bodega: '', documento: '', nombre: '', direccion: '', es_central: false, activa: true }); setError(''); }}>+ Sucursal</Boton>}
+        accion={editable && <Boton onClick={() => { setForm({ codigo: '', bodega: '', documento: '', ventaLocal: false, nombre: '', direccion: '', es_central: false, activa: true }); setError(''); }}>+ Sucursal</Boton>}
       >
         Sucursales
       </Titulo>
@@ -87,12 +88,13 @@ export default function TiendasCliente({ roles, orgFijaId }: { roles: Asignacion
                     {t.bodega ? <Insignia color="gray">Bodega {t.bodega}</Insignia> : <Insignia color="red">Sin bodega</Insignia>}
                     {t.documento_traslado && <Insignia color="gray">Doc. {t.documento_traslado}</Insignia>}
                     {t.es_central && <Insignia color="green">Centro de distribución</Insignia>}
+                    {t.es_venta_local && <Insignia color="indigo">Ventas locales</Insignia>}
                     {!t.activa && <Insignia color="gray">Inactiva</Insignia>}
                   </div>
                   <p className="mt-1 text-xs text-gray-400">{t.documento_nombre || t.direccion || 'Sin dirección'}</p>
                 </div>
                 {editable && (
-                  <Boton variante="suave" onClick={() => { setForm({ id: t.id, codigo: t.codigo, bodega: t.bodega || '', documento: t.documento_traslado || '', nombre: t.nombre, direccion: t.direccion || '', es_central: t.es_central, activa: t.activa }); setError(''); }}>
+                  <Boton variante="suave" onClick={() => { setForm({ id: t.id, codigo: t.codigo, bodega: t.bodega || '', documento: t.documento_traslado || '', ventaLocal: !!t.es_venta_local, nombre: t.nombre, direccion: t.direccion || '', es_central: t.es_central, activa: t.activa }); setError(''); }}>
                     Editar
                   </Boton>
                 )}
@@ -132,6 +134,12 @@ export default function TiendasCliente({ roles, orgFijaId }: { roles: Asignacion
             <input type="checkbox" checked={form.es_central} onChange={(e) => setForm({ ...form, es_central: e.target.checked })} />
             Es centro de distribución
           </label>
+          {!form.es_central && (
+            <label className="flex items-center gap-2 text-sm font-bold">
+              <input type="checkbox" checked={form.ventaLocal} onChange={(e) => setForm({ ...form, ventaLocal: e.target.checked })} />
+              Bodega de ventas locales (los traslados quedan disponibles sin recepción y se venden escaneando)
+            </label>
+          )}
           <label className="flex items-center gap-2 text-sm font-bold">
             <input type="checkbox" checked={form.activa} onChange={(e) => setForm({ ...form, activa: e.target.checked })} />
             Activa
