@@ -121,7 +121,7 @@ export default function EmpleadosCliente({ roles }: { roles: AsignacionRol[] }) 
       <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
         <Selector value={filtroTienda} onChange={(e) => setFiltroTienda(e.target.value)}>
           <option value="">Todas las tiendas</option>
-          {tiendas.filter((t) => !t.es_central && !t.es_venta_local).map((t) => (
+          {tiendas.filter((t) => !t.es_central).map((t) => (
             <option key={t.id} value={t.id}>{t.codigo} · {t.nombre}</option>
           ))}
         </Selector>

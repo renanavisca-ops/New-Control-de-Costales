@@ -117,9 +117,9 @@ export default function TiendasCliente({ roles, orgFijaId }: { roles: Asignacion
                   </Boton>
                 )}
               </div>
-              {!t.es_central && !t.es_venta_local && (
+              {!t.es_central && (
                 <div className="flex flex-wrap items-center gap-2 border-t border-gray-50 pt-3">
-                {!t.es_central && !t.es_venta_local && (
+                {!t.es_central && (
                   <>
                     <a href={`/admin/empleados?tienda=${t.id}`} className="rounded-2xl bg-indigo-50 px-3 py-2 text-xs font-black text-indigo-700">
                       👷 Empleados ({numEmpleados[t.id] ?? 0})

@@ -13,9 +13,12 @@ export type DatosOffline = {
   inventario?: InventarioAbierto | null;
   destino_saldo?: { id: string; nombre: string } | null;
   inicial_cerrado?: boolean | null;
+  venta_local?: boolean | null;
+  vendidos_hoy?: Vendido[];
 };
 
-export type TipoOp = 'RECIBIR' | 'INICIAR' | 'FINALIZAR' | 'RETORNO' | 'INVENTARIO';
+export type TipoOp = 'RECIBIR' | 'INICIAR' | 'FINALIZAR' | 'RETORNO' | 'INVENTARIO' | 'VENDER' | 'ANULAR_VENTA';
+export type Vendido = { codigo: string; producto: string | null; vendido_at: string; empleado: string | null };
 export type Operacion = {
   id: string;
   tipo: TipoOp;
@@ -95,6 +98,15 @@ export function aplicarLocal(d: DatosOffline, op: Operacion, nombreProducto: str
   } else if (op.tipo === 'FINALIZAR') {
     en_proceso = en_proceso.filter((p) => p.codigo !== codigo);
     if (i >= 0) costales.splice(i, 1);
+  } else if (op.tipo === 'VENDER') {
+    const producto = i >= 0 ? costales[i].producto : nombreProducto;
+    if (i >= 0) costales.splice(i, 1);
+    const vendidos = (d.vendidos_hoy ?? []).filter((v) => v.codigo !== codigo);
+    return { ...d, costales, vendidos_hoy: [{ codigo, producto, vendido_at: op.ocurrido_at, empleado: op.empleado.nombre }, ...vendidos] };
+  } else if (op.tipo === 'ANULAR_VENTA') {
+    const v = (d.vendidos_hoy ?? []).find((x) => x.codigo === codigo);
+    if (i < 0) costales.push({ codigo, estado: 'EN_TIENDA', producto: v?.producto ?? nombreProducto });
+    return { ...d, costales, vendidos_hoy: (d.vendidos_hoy ?? []).filter((x) => x.codigo !== codigo) };
   } else if (op.tipo === 'INVENTARIO' && d.inventario && !d.inventario.leidos.includes(codigo)) {
     return { ...d, inventario: { ...d.inventario, leidos: [...d.inventario.leidos, codigo] } };
   }

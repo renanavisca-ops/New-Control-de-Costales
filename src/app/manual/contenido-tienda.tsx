@@ -9,6 +9,7 @@ export const SECCIONES_TIENDA = [
   ['inicial', 'Inventario inicial desde el celular'],
   ['inventario', 'Inventario (cuando el supervisor lo abre)'],
   ['auditoria', 'Auditoría con código temporal'],
+  ['venta-local', 'Bodega de ventas locales (B037)'],
   ['retorno', 'Retorno de saldo'],
   ['stock', 'Stock de la tienda'],
   ['sin-internet', 'Sin internet'],
@@ -156,6 +157,19 @@ export function ManualTienda() {
           <li>Al terminar pulsa <B>Finalizar</B>. El reporte queda en el panel (Auditorías) para imprimirlo.</li>
         </Pasos>
         <Nota>Nada de la auditoría queda guardado en el celular y necesita internet.</Nota>
+      </Seccion>
+
+      <Seccion id="venta-local" titulo="8b. Bodega de ventas locales (B037)">
+        <p>
+          El celular de la bodega de ventas locales muestra otras opciones: <B>Vender</B>, <B>Stock</B>, <B>Anular venta</B>, Inventario (cuando
+          el supervisor lo abre) y Auditoría. Los costales llegan solos con el traslado del centro a la bodega B037; no hay que recibirlos.
+        </p>
+        <Pasos>
+          <li>Toca <B>Vender</B> y entra con tu código y PIN.</li>
+          <li>Escanea cada costal que se vende. Queda vendido a tu nombre y sale del stock.</li>
+          <li>Si te equivocaste, toca <B>Anular venta</B>, escanea el costal y confirma: vuelve al stock.</li>
+        </Pasos>
+        <Nota>Si escaneas un costal que no está en la bodega o que ya se vendió, la app lo marca en rojo con el motivo.</Nota>
       </Seccion>
 
       <Seccion id="retorno" titulo="9. Retorno de saldo">
