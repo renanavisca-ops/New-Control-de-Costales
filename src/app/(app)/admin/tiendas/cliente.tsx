@@ -16,6 +16,7 @@ export default function TiendasCliente({ roles, orgFijaId }: { roles: Asignacion
   const orgId = orgFijaId ?? orgActiva;
   const [tiendas, setTiendas] = useState<Tienda[]>([]);
   const [abast, setAbast] = useState<{ centro_id: string; organizacion_id: string }[]>([]);
+  const [numEmpleados, setNumEmpleados] = useState<Record<string, number>>({});
   const [form, setForm] = useState<Form | null>(null);
   const [error, setError] = useState('');
   const editable = puedeAdministrarOrg(roles, orgId);
@@ -43,6 +44,13 @@ export default function TiendasCliente({ roles, orgFijaId }: { roles: Asignacion
     ]);
     setTiendas((t.data as Tienda[]) || []);
     setAbast(a.data || []);
+    const ids = ((t.data as Tienda[]) || []).map((x) => x.id);
+    if (ids.length) {
+      const { data: et } = await sb.from('empleado_tiendas').select('tienda_id, empleados!inner(activo)').in('tienda_id', ids).eq('empleados.activo', true);
+      const m: Record<string, number> = {};
+      ((et as { tienda_id: string }[]) || []).forEach((x) => (m[x.tienda_id] = (m[x.tienda_id] ?? 0) + 1));
+      setNumEmpleados(m);
+    }
   }, [orgId, sb]);
 
   useEffect(() => {
@@ -103,6 +111,26 @@ export default function TiendasCliente({ roles, orgFijaId }: { roles: Asignacion
                   </div>
                   <p className="mt-1 text-xs text-gray-400">{t.documento_nombre || t.direccion || 'Sin dirección'}</p>
                 </div>
+                {editable && (
+                  <Boton variante="suave" onClick={() => { setForm({ id: t.id, codigo: t.codigo, bodega: t.bodega || '', documento: t.documento_traslado || '', ventaLocal: !!t.es_venta_local, nombre: t.nombre, direccion: t.direccion || '', es_central: t.es_central, activa: t.activa }); setError(''); }}>
+                    Editar
+                  </Boton>
+                )}
+              </div>
+              {!t.es_central && !t.es_venta_local && (
+                <div className="flex flex-wrap items-center gap-2 border-t border-gray-50 pt-3">
+                {!t.es_central && !t.es_venta_local && (
+                  <>
+                    <a href={`/admin/empleados?tienda=${t.id}`} className="rounded-2xl bg-indigo-50 px-3 py-2 text-xs font-black text-indigo-700">
+                      👷 Empleados ({numEmpleados[t.id] ?? 0})
+                    </a>
+                    {editable && (
+                      <a href={`/admin/empleados?tienda=${t.id}&nuevo=1`} className="rounded-2xl bg-indigo-600 px-3 py-2 text-xs font-black text-white">
+                        + Empleado
+                      </a>
+                    )}
+                  </>
+                )}
                 {!t.es_central && !t.es_venta_local && t.inicial_cerrado_at && (
                   <Insignia color="gray">Inicial cerrado {new Date(t.inicial_cerrado_at).toLocaleDateString()}</Insignia>
                 )}
@@ -112,18 +140,14 @@ export default function TiendasCliente({ roles, orgFijaId }: { roles: Asignacion
                       📄 Inventario inicial
                     </a>
                     {administra && (
-                      <Boton variante="suave" onClick={() => cerrarInicial(t)}>
+                      <button onClick={() => cerrarInicial(t)} className="rounded-2xl bg-gray-100 px-3 py-2 text-xs font-black text-gray-700">
                         🔒 Cerrar inicial
-                      </Boton>
+                      </button>
                     )}
                   </>
                 )}
-                {editable && (
-                  <Boton variante="suave" onClick={() => { setForm({ id: t.id, codigo: t.codigo, bodega: t.bodega || '', documento: t.documento_traslado || '', ventaLocal: !!t.es_venta_local, nombre: t.nombre, direccion: t.direccion || '', es_central: t.es_central, activa: t.activa }); setError(''); }}>
-                    Editar
-                  </Boton>
-                )}
-              </div>
+                </div>
+              )}
               {t.es_central && (
                 <div className="rounded-2xl bg-gray-50 p-3">
                   <p className="mb-2 text-xs font-black uppercase tracking-wide text-gray-500">También abastece a</p>
