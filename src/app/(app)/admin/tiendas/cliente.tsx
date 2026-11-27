@@ -19,6 +19,16 @@ export default function TiendasCliente({ roles, orgFijaId }: { roles: Asignacion
   const [form, setForm] = useState<Form | null>(null);
   const [error, setError] = useState('');
   const editable = puedeAdministrarOrg(roles, orgId);
+  const administra = roles.some((r) => r.rol === 'SUPERADMIN' || (r.rol === 'ADMIN_ORG' && r.organizacion_id === orgId));
+
+  const cerrarInicial = async (t: Tienda) => {
+    const { count } = await sb.from('costales').select('id', { count: 'exact', head: true }).eq('tienda_id', t.id).eq('origen', 'INVENTARIO_INICIAL');
+    if (!confirm(`¿Cerrar el inventario inicial de ${t.codigo} · ${t.nombre}? Tiene ${count ?? 0} costales registrados.\n\nYa no se podrán agregar más costales de inventario inicial (ni por celular ni por Excel). Solo la plataforma puede reabrirlo.`)) return;
+    const { data, error: e } = await sb.rpc('cerrar_inventario_inicial', { p_tienda: t.id });
+    const r = data as { ok: boolean; error?: string } | null;
+    if (e || !r?.ok) return alert(r?.error ?? e?.message ?? 'No se pudo cerrar.');
+    cargar();
+  };
 
   useEffect(() => {
     cargarOrgsPropias(roles).then(setOrgs);
@@ -93,10 +103,20 @@ export default function TiendasCliente({ roles, orgFijaId }: { roles: Asignacion
                   </div>
                   <p className="mt-1 text-xs text-gray-400">{t.documento_nombre || t.direccion || 'Sin dirección'}</p>
                 </div>
-                {editable && !t.es_central && !t.es_venta_local && (
-                  <a href={`/admin/inventarios?inicial=${t.id}`} className="shrink-0 rounded-2xl bg-gray-900 px-3 py-2 text-xs font-black text-white">
-                    📄 Inventario inicial
-                  </a>
+                {!t.es_central && !t.es_venta_local && t.inicial_cerrado_at && (
+                  <Insignia color="gray">Inicial cerrado {new Date(t.inicial_cerrado_at).toLocaleDateString()}</Insignia>
+                )}
+                {editable && !t.es_central && !t.es_venta_local && !t.inicial_cerrado_at && (
+                  <>
+                    <a href={`/admin/inventarios?inicial=${t.id}`} className="shrink-0 rounded-2xl bg-gray-900 px-3 py-2 text-xs font-black text-white">
+                      📄 Inventario inicial
+                    </a>
+                    {administra && (
+                      <Boton variante="suave" onClick={() => cerrarInicial(t)}>
+                        🔒 Cerrar inicial
+                      </Boton>
+                    )}
+                  </>
                 )}
                 {editable && (
                   <Boton variante="suave" onClick={() => { setForm({ id: t.id, codigo: t.codigo, bodega: t.bodega || '', documento: t.documento_traslado || '', ventaLocal: !!t.es_venta_local, nombre: t.nombre, direccion: t.direccion || '', es_central: t.es_central, activa: t.activa }); setError(''); }}>
