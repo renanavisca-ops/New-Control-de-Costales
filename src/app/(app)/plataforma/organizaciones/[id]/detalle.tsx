@@ -153,6 +153,8 @@ export default function DetalleOrgPlataforma({ org, roles, miId }: { org: Organi
         })}
       </Tarjeta>
 
+      <InicialesOrg orgId={org.id} />
+
       <UsuariosCliente roles={roles} miId={miId} modoPlataforma orgFijaId={org.id} />
 
       {agregar && (
@@ -204,5 +206,44 @@ export default function DetalleOrgPlataforma({ org, roles, miId }: { org: Organi
         </Modal>
       )}
     </div>
+  );
+}
+
+/** Inventario inicial por sucursal: solo la plataforma puede reabrir uno cerrado. */
+function InicialesOrg({ orgId }: { orgId: string }) {
+  const sb = supabaseNavegador();
+  const [tiendas, setTiendas] = useState<Tienda[]>([]);
+  const cargar = useCallback(async () => {
+    const { data } = await sb.from('tiendas').select('*').eq('organizacion_id', orgId).eq('es_central', false).order('codigo');
+    setTiendas(((data as Tienda[]) || []).filter((t) => !t.es_venta_local));
+  }, [orgId, sb]);
+  useEffect(() => {
+    cargar();
+  }, [cargar]);
+  const reabrir = async (t: Tienda) => {
+    if (!confirm(`¿Reabrir el inventario inicial de ${t.codigo}? La tienda podrá volver a agregar costales de inventario inicial.`)) return;
+    const { data } = await sb.rpc('reabrir_inventario_inicial', { p_tienda: t.id });
+    const r = data as { ok: boolean; error?: string } | null;
+    if (!r?.ok) alert(r?.error ?? 'No se pudo reabrir.');
+    cargar();
+  };
+  if (tiendas.length === 0) return null;
+  return (
+    <Tarjeta>
+      <p className="mb-2 text-xs font-black uppercase tracking-wide text-gray-400">Inventario inicial por sucursal</p>
+      {tiendas.map((t) => (
+        <div key={t.id} className="flex items-center justify-between border-b border-gray-50 py-1.5 text-sm">
+          <span className="font-bold">{t.codigo} · {t.nombre}</span>
+          {t.inicial_cerrado_at ? (
+            <span className="flex items-center gap-2">
+              <Insignia color="gray">Cerrado {new Date(t.inicial_cerrado_at).toLocaleDateString()}</Insignia>
+              <button onClick={() => reabrir(t)} className="text-xs font-bold text-indigo-600 hover:underline">Reabrir</button>
+            </span>
+          ) : (
+            <Insignia color="green">Abierto</Insignia>
+          )}
+        </div>
+      ))}
+    </Tarjeta>
   );
 }

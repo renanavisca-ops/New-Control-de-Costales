@@ -59,6 +59,7 @@ export interface Tienda {
   documento_nombre?: string | null;
   es_central: boolean;
   activa: boolean;
+  inicial_cerrado_at?: string | null;
 }
 
 export interface Categoria {

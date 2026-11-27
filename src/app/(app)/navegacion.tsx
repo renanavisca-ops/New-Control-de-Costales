@@ -23,6 +23,7 @@ const MENU_ORG: Grupo[] = [
       { href: '/admin/produccion', etiqueta: 'Empaque vs. producción', icono: '📊', roles: ['ADMIN_ORG', 'AUDITOR'], soporte: true },
       { href: '/admin/inventarios', etiqueta: 'Inventarios', icono: '🔍', roles: ['ADMIN_ORG', 'SUPERVISOR', 'AUDITOR'], soporte: true },
       { href: '/admin/retornos', etiqueta: 'Retornos de saldo', icono: '↩️', roles: TODOS, soporte: true },
+      { href: '/admin/auditorias', etiqueta: 'Auditorías', icono: '🛡️', roles: ['ADMIN_ORG', 'AUDITOR'], soporte: true },
     ],
   },
   {

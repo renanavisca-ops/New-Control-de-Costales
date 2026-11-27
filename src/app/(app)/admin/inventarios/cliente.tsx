@@ -321,12 +321,16 @@ export default function InventariosCliente({ roles }: { roles: AsignacionRol[] }
             Carga de una sola vez los costales que ya tiene la tienda. Usa el <b>mismo formato del traslado</b> (reporte del sistema o la
             plantilla): COSTAL # · PIEZAS · PESO, agrupado por clasificación y producto. La <b>BODEGA DE ENTRADA</b> debe ser la de esta tienda.
           </p>
+          {tiendaInicial?.inicial_cerrado_at && (
+            <Aviso tipo="error">El inventario inicial de esta tienda ya está cerrado. Solo la plataforma puede reabrirlo.</Aviso>
+          )}
           <Campo etiqueta="Número de tienda">
             <Selector value={inicial.tienda} onChange={(e) => setInicial({ tienda: e.target.value })}>
               {tiendasSupervisables.map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.codigo} · {t.nombre}
                   {t.bodega ? ` (bodega ${t.bodega})` : ''}
+                  {t.inicial_cerrado_at ? ' — inicial cerrado' : ''}
                 </option>
               ))}
             </Selector>

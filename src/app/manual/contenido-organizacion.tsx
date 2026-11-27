@@ -250,6 +250,12 @@ export function ManualOrganizacion() {
         <Figura img="o-inicial" pie="Elegir el número de tienda y descargar la plantilla" />
         <Figura img="o-inicial-subido" pie="Aviso de bodega distinta y productos antes de confirmar" />
         <Nota>Se puede cargar por partes: los costales que ya estaban cargados en esa misma tienda se omiten.</Nota>
+        <Sub>Cerrar el inventario inicial</Sub>
+        <p>
+          Cuando la tienda terminó su inventario inicial (por Excel o escaneando en el celular), el administrador va a <B>Sucursales</B> y pulsa{' '}
+          <B>🔒 Cerrar inicial</B>. Desde ese momento no se pueden agregar más costales de inventario inicial a esa tienda: el botón desaparece
+          del celular y el Excel se rechaza. Solo la plataforma puede reabrirlo.
+        </p>
       </Seccion>
 
       <Seccion id="inventarios" titulo="14. Inventarios completos y selectivos">
@@ -276,6 +282,17 @@ export function ManualOrganizacion() {
           ]}
         />
         <p>Si los faltantes se confirman, el administrador pulsa <B>Dar de baja los faltantes</B> y salen del stock. Solo puede haber un inventario abierto por tienda.</p>
+        <Sub>Auditorías con código temporal</Sub>
+        <p>
+          Para revisar una tienda sin depender de sus empleados. Menú <B>Auditorías</B> → <B>+ Código de auditoría</B>: elige la sucursal, quién
+          la hará y por cuántas horas vale (por ejemplo 24). El código se muestra <B>una sola vez</B>: cópialo y envíalo.
+        </p>
+        <Pasos>
+          <li>El auditor entra en el celular de la tienda (botón <B>🛡️ Auditoría</B>) o en cualquier celular en <B>…/auditoria</B> con el código.</li>
+          <li>Escanea los costales y ve en vivo cuáles estaban reportados, cuáles faltan y cuáles no estaban reportados.</li>
+          <li>Al finalizar, el reporte queda en <B>Auditorías</B> → <B>Ver / imprimir</B>, con espacio para firmas. En el celular no queda nada guardado.</li>
+        </Pasos>
+        <p>Puedes <B>revocar</B> un código antes de que venza. Lo usan administradores y auditores.</p>
       </Seccion>
 
       <Seccion id="en-vivo" titulo="15. Producción en vivo">
@@ -288,12 +305,16 @@ export function ManualOrganizacion() {
           Compara las piezas con que se empacó cada costal contra las piezas que la tienda anotó al finalizarlo. Lo ven <B>solo administradores
           y auditores</B>. Una diferencia de <B>5 piezas o más</B> se marca como alerta.
         </p>
-        <Figura img="o-produccion" pie="Diferencias por empleado, por producto y por costal" />
+        <Figura img="o-produccion" pie="Diferencias por tienda, por empleado, por producto y por costal" />
         <p>Filtra por tienda y por fechas; marca <B>Solo alertas</B> para ver únicamente los costales con diferencia grande.</p>
       </Seccion>
 
       <Seccion id="costales" titulo="17. Costales">
         <p>Lista de todos los costales con filtro por tienda y estado (en stock, en producción, producido, en tránsito), con un resumen por producto y búsqueda por código.</p>
+        <p>
+          Con <B>Corregir</B> se arregla un costal mal registrado (código mal leído por la cámara, producto o piezas equivocados), o se elimina si
+          se registró por error y no ha entrado a producción. Cada cambio queda registrado.
+        </p>
         <Figura img="o-costales" pie="Costales en stock con resumen por producto" />
       </Seccion>
 

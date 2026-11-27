@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { supabaseNavegador } from '@/lib/supabase/client';
 import Escaner, { codigoValido } from '@/components/escaner';
+import Auditoria from '@/components/auditoria';
 import { Aviso, Boton, Campo, Entrada, Modal, Selector } from '@/components/ui';
 import { nuevoId, type Categoria, type EnProceso, type Operacion, type TipoOp } from '@/lib/offline/almacen';
 import { verificadorPin } from '@/lib/offline/pin';
@@ -9,7 +10,7 @@ import { useSincronizacion } from '@/lib/offline/sincronizacion';
 
 type Empleado = { id: string; codigo: string; nombre: string };
 type Sesion = { token: string; empleado: Empleado };
-type Vista = 'INICIO' | 'PRODUCCION' | 'RECIBIR' | 'INICIAL' | 'STOCK' | 'RETORNO' | 'INVENTARIO';
+type Vista = 'INICIO' | 'PRODUCCION' | 'RECIBIR' | 'INICIAL' | 'STOCK' | 'RETORNO' | 'INVENTARIO' | 'AUDITORIA';
 type Sinc = ReturnType<typeof useSincronizacion>;
 
 const INACTIVIDAD_MS = 3 * 60 * 1000;
@@ -57,7 +58,7 @@ export default function TiendaCliente({
   }, [sesion]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Stock y Producción se abren sin PIN: en Producción cada persona se identifica al iniciar su costal
-  const abrir = (v: Vista) => (v === 'STOCK' || v === 'PRODUCCION' ? setVista(v) : setPendiente(v));
+  const abrir = (v: Vista) => (v === 'STOCK' || v === 'PRODUCCION' || v === 'AUDITORIA' ? setVista(v) : setPendiente(v));
   const terminar = () => {
     setSesion(null);
     setVista('INICIO');
@@ -100,7 +101,9 @@ export default function TiendaCliente({
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
             <Mosaico icono="✂️" titulo="Producción" detalle="Iniciar y finalizar costales" principal onClick={() => abrir('PRODUCCION')} />
             <Mosaico icono="📥" titulo="Recibir" detalle="Costales que llegan" onClick={() => abrir('RECIBIR')} />
-            <Mosaico icono="📋" titulo="Inventario inicial" detalle="Costales que ya estaban" onClick={() => abrir('INICIAL')} />
+            {!sinc.datos.inicial_cerrado && (
+              <Mosaico icono="📋" titulo="Inventario inicial" detalle="Costales que ya estaban" onClick={() => abrir('INICIAL')} />
+            )}
             <Mosaico icono="📦" titulo="Stock" detalle="Costales sin abrir" onClick={() => abrir('STOCK')} />
             <Mosaico icono="↩️" titulo="Retorno de saldo" detalle="Enviar saldo al centro" onClick={() => abrir('RETORNO')} />
             {sinc.datos.inventario && (
@@ -127,6 +130,9 @@ export default function TiendaCliente({
               ))}
             </div>
           </section>
+          <button onClick={() => abrir('AUDITORIA')} className="block w-full rounded-3xl bg-white p-4 text-center text-sm font-black text-gray-700 shadow-sm">
+            🛡️ Auditoría (con código del administrador)
+          </button>
           <a href="/manual/tienda" className="block rounded-3xl bg-white p-4 text-center text-sm font-black text-indigo-600 shadow-sm">
             📘 Manual de uso del celular
           </a>
@@ -136,9 +142,11 @@ export default function TiendaCliente({
       {vista === 'PRODUCCION' && (
         <Produccion sesion={sesion} sinc={sinc} dispositivoId={dispositivo.id} onPersona={(s) => { setSesion(s); ultimaActividad.current = Date.now(); }} />
       )}
-      {(vista === 'RECIBIR' || vista === 'INICIAL') && sesion && <Recepcion sesion={sesion} inicial={vista === 'INICIAL'} sinc={sinc} />}
+      {(vista === 'RECIBIR' || (vista === 'INICIAL' && !sinc.datos.inicial_cerrado)) && sesion && <Recepcion sesion={sesion} inicial={vista === 'INICIAL'} sinc={sinc} />}
       {vista === 'RETORNO' && sesion && <Retorno sesion={sesion} sinc={sinc} tiendaCodigo={tienda.codigo} />}
       {vista === 'INVENTARIO' && sesion && <Inventario sesion={sesion} sinc={sinc} />}
+      {vista === 'AUDITORIA' && <Auditoria onSalir={terminar} />}
+      {vista === 'INICIAL' && sinc.datos.inicial_cerrado && <Aviso tipo="error">El inventario inicial de esta tienda ya está cerrado.</Aviso>}
       {vista === 'STOCK' && (
         <section className="rounded-3xl bg-white p-5 shadow-sm">
           <p className="mb-3 text-lg font-black">Stock en tienda</p>

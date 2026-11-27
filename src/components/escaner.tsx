@@ -9,8 +9,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
  *  - Lector USB o Bluetooth en modo teclado: escribe en el campo y envía Enter.
  *  - Escritura manual en el mismo campo.
  */
-const LECTURAS_IGUALES = 3; // veces que la cámara debe leer el mismo código
-const VENTANA_MS = 2000;
+const LECTURAS_IGUALES = 2; // veces que la cámara debe leer el mismo código
+const VENTANA_MS = 4000;
 const PAUSA_TRAS_LECTURA_MS = 1800;
 
 /** Formato de las etiquetas del sistema; otros códigos (p. ej. SAL-…) se aceptan si no empiezan con EMP. */

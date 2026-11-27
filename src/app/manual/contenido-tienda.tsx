@@ -8,6 +8,7 @@ export const SECCIONES_TIENDA = [
   ['produccion', 'Producción: abrir y terminar un costal'],
   ['inicial', 'Inventario inicial desde el celular'],
   ['inventario', 'Inventario (cuando el supervisor lo abre)'],
+  ['auditoria', 'Auditoría con código temporal'],
   ['retorno', 'Retorno de saldo'],
   ['stock', 'Stock de la tienda'],
   ['sin-internet', 'Sin internet'],
@@ -123,6 +124,10 @@ export function ManualTienda() {
           <li>Elige el <B>producto</B> y escribe las <B>piezas</B> que dice la etiqueta (queda elegido el último producto: revísalo cada vez) y pulsa <B>Registrar</B>.</li>
         </Pasos>
         <Figura img="t-inicial" pie="Inventario inicial costal por costal" movil />
+        <Nota tipo="aviso">
+          Cuando el administrador <B>cierra el inventario inicial</B> de la tienda, el botón desaparece y ya no se pueden agregar más costales
+          de inventario inicial.
+        </Nota>
       </Seccion>
 
       <Seccion id="inventario" titulo="7. Inventario (cuando el supervisor lo abre)">
@@ -138,7 +143,22 @@ export function ManualTienda() {
         <Figura img="t-inventario" pie="Inventario selectivo: solo productos de la clase A" movil />
       </Seccion>
 
-      <Seccion id="retorno" titulo="8. Retorno de saldo">
+      <Seccion id="auditoria" titulo="8. Auditoría con código temporal">
+        <p>
+          Para que un auditor o administrador revise el inventario de la tienda. No usa código ni PIN de empleado: usa un <B>código de
+          auditoría</B> que se genera en el panel y vence en pocas horas.
+        </p>
+        <Pasos>
+          <li>En el celular de la tienda toca <B>🛡️ Auditoría</B>. En cualquier otro celular abre <B>new-control-de-costales.vercel.app/auditoria</B>.</li>
+          <li>Escribe el código (por ejemplo C4WY6-PL3N4) y pulsa <B>Entrar</B>.</li>
+          <li>Escanea cada costal. En verde: estaba reportado. En rojo: <B>no está reportado</B> en esta tienda.</li>
+          <li><B>Ver comparación</B> muestra por producto los reportados, encontrados y la diferencia, y la lista de faltantes.</li>
+          <li>Al terminar pulsa <B>Finalizar</B>. El reporte queda en el panel (Auditorías) para imprimirlo.</li>
+        </Pasos>
+        <Nota>Nada de la auditoría queda guardado en el celular y necesita internet.</Nota>
+      </Seccion>
+
+      <Seccion id="retorno" titulo="9. Retorno de saldo">
         <p>El saldo (piezas que no se venden) se junta en un saco y se devuelve al centro de distribución. El saco no tiene código de barras: lo genera la app.</p>
         <Pasos>
           <li>Toca <B>Retorno de saldo</B> y entra con tu código y PIN.</li>
@@ -152,12 +172,12 @@ export function ManualTienda() {
         </Par>
       </Seccion>
 
-      <Seccion id="stock" titulo="9. Stock de la tienda">
+      <Seccion id="stock" titulo="10. Stock de la tienda">
         <p>El botón <B>Stock</B> muestra cuántos costales sin abrir hay de cada producto. No pide PIN.</p>
         <Figura img="t-stock" pie="Costales sin abrir por producto" movil />
       </Seccion>
 
-      <Seccion id="sin-internet" titulo="10. Sin internet">
+      <Seccion id="sin-internet" titulo="11. Sin internet">
         <Lista>
           <li>Puedes seguir trabajando sin señal si entraste al menos una vez con internet en los últimos 7 días.</li>
           <li>Todo lo que hagas se guarda en el celular y se envía solo cuando vuelve la conexión, con la hora real en que lo hiciste.</li>
@@ -166,14 +186,14 @@ export function ManualTienda() {
         </Lista>
       </Seccion>
 
-      <Seccion id="problemas" titulo="11. Si algo no funciona">
+      <Seccion id="problemas" titulo="12. Si algo no funciona">
         <Tabla
           cols={['Problema', 'Qué hacer']}
           filas={[
             ['El celular pide un código de activación', 'El celular se desactivó. Pide al administrador un código nuevo (Celulares).'],
             ['Olvidé mi PIN o mi código', 'Pide al administrador o supervisor que te asigne un PIN nuevo.'],
             ['“Demasiados intentos”', 'Espera 10 minutos y vuelve a intentar con el PIN correcto.'],
-            ['La cámara no lee el código', 'La cámara debe leer el mismo código 3 veces para aceptarlo: mantén quieto el celular a 15–25 cm, usa la luz 🔦 o el zoom. Si no, escribe el código a mano.'],
+            ['La cámara no lee el código', 'La cámara debe leer el mismo código 2 veces para aceptarlo: mantén quieto el celular a 15–25 cm, usa la luz 🔦 o el zoom. Si no, escribe el código a mano.'],
             ['Se registró un código o producto equivocado', 'Avisa al supervisor: lo corrige o elimina en Costales → Corregir.'],
             ['“El costal ya está en producción”', 'Otra persona ya lo inició. Revisa en Mis costales en proceso o pregunta al compañero.'],
             ['“Costal registrado en otra tienda”', 'Ese costal no es de tu tienda. Sepáralo y avisa al supervisor.'],

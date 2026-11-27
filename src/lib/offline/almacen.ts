@@ -12,6 +12,7 @@ export type DatosOffline = {
   en_proceso: EnProceso[];
   inventario?: InventarioAbierto | null;
   destino_saldo?: { id: string; nombre: string } | null;
+  inicial_cerrado?: boolean | null;
 };
 
 export type TipoOp = 'RECIBIR' | 'INICIAR' | 'FINALIZAR' | 'RETORNO' | 'INVENTARIO';
