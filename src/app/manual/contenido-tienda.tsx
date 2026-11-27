@@ -69,7 +69,7 @@ export function ManualTienda() {
         <p>Cuando llega el camión del centro de distribución, escanea <B>cada costal</B> que se baja.</p>
         <Pasos>
           <li>Toca <B>Recibir</B> y entra con tu código y PIN.</li>
-          <li>Escanea el código de barras del costal con el lector, o toca <B>Usar cámara</B>. También puedes escribir el código y pulsar OK.</li>
+          <li>Escanea el código de barras del costal con <B>📷 Usar cámara</B> o con <B>📸 Foto</B> (toma una foto del código; es lo más seguro con cámaras sencillas). También puedes escribir el código y pulsar OK.</li>
           <li>Si el costal venía en el traslado, aparece <B>&quot;Costal … recibido&quot;</B>. Sigue con el siguiente.</li>
         </Pasos>
         <Par>
@@ -207,7 +207,7 @@ export function ManualTienda() {
             ['El celular pide un código de activación', 'El celular se desactivó. Pide al administrador un código nuevo (Celulares).'],
             ['Olvidé mi PIN o mi código', 'Pide al administrador o supervisor que te asigne un PIN nuevo.'],
             ['“Demasiados intentos”', 'Espera 10 minutos y vuelve a intentar con el PIN correcto.'],
-            ['La cámara no lee el código', 'La cámara debe leer el mismo código 2 veces para aceptarlo: mantén quieto el celular a 15–25 cm, usa la luz 🔦 o el zoom. Si no, escribe el código a mano.'],
+            ['La cámara no lee el código', 'Pon el código derecho dentro del recuadro, a 15–25 cm, y mantén quieto el celular; usa la luz 🔦 si hay poca luz. Si aun así no lee, toca 📸 Foto y toma una foto del código. Como último recurso, escribe el código a mano.'],
             ['Se registró un código o producto equivocado', 'Avisa al supervisor: lo corrige o elimina en Costales → Corregir.'],
             ['“El costal ya está en producción”', 'Otra persona ya lo inició. Revisa en Mis costales en proceso o pregunta al compañero.'],
             ['“Costal registrado en otra tienda”', 'Ese costal no es de tu tienda. Sepáralo y avisa al supervisor.'],
