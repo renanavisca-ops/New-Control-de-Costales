@@ -1,17 +1,28 @@
 'use client';
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useRef, useState } from 'react';
 import { supabaseNavegador } from '@/lib/supabase/client';
 import { Aviso, Boton, Entrada } from '@/components/ui';
 
 export default function ActivarDispositivoPage() {
-  const router = useRouter();
   const [codigo, setCodigo] = useState('');
   const [error, setError] = useState('');
   const [cargando, setCargando] = useState(false);
+  const [listo, setListo] = useState(false);
+  const enCurso = useRef(false);
+
+  // Si este celular ya tiene una sesión de dispositivo activa, entra directo (no se debe activar dos veces)
+  useEffect(() => {
+    const sb = supabaseNavegador();
+    sb.rpc('mi_contexto').then(({ data }: { data: unknown }) => {
+      const c = data as { tipo?: string; dispositivo?: { estado?: string } } | null;
+      if (c?.tipo === 'DISPOSITIVO' && c.dispositivo?.estado === 'ACTIVO') window.location.replace('/tienda');
+    });
+  }, []);
 
   const activar = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (enCurso.current || listo) return; // evita un segundo toque mientras se activa o se abre la tienda
+    enCurso.current = true;
     setError('');
     setCargando(true);
     const sb = supabaseNavegador();
@@ -27,13 +38,18 @@ export default function ActivarDispositivoPage() {
     }
     if (!respuesta?.ok || !respuesta.data) {
       setCargando(false);
+      enCurso.current = false;
       return setError(respuesta?.error || 'No se pudo activar.');
     }
     const { error: e2 } = await sb.auth.signInWithPassword(respuesta.data);
-    setCargando(false);
-    if (e2) return setError(e2.message);
-    router.replace('/tienda');
-    router.refresh();
+    if (e2) {
+      setCargando(false);
+      enCurso.current = false;
+      return setError(e2.message);
+    }
+    // Activado: el botón queda bloqueado y se abre la tienda (carga completa para que el servidor vea la sesión nueva)
+    setListo(true);
+    window.location.replace('/tienda');
   };
 
   return (
@@ -53,8 +69,9 @@ export default function ActivarDispositivoPage() {
           autoComplete="off"
         />
         {error && <Aviso tipo="error">{error}</Aviso>}
-        <Boton type="submit" disabled={cargando || codigo.length !== 8} className="w-full py-4">
-          {cargando ? 'Activando…' : 'Activar'}
+        {listo && <Aviso tipo="exito">✓ Celular activado. Abriendo la tienda…</Aviso>}
+        <Boton type="submit" disabled={cargando || listo || codigo.length !== 8} className="w-full py-4">
+          {listo ? 'Abriendo…' : cargando ? 'Activando…' : 'Activar'}
         </Boton>
       </form>
     </main>
