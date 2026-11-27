@@ -110,16 +110,19 @@ export function leerTraslado(filas: unknown[][]): Traslado {
       continue;
     }
 
+    // La clasificación puede venir en cualquier columna (en algunos reportes está en la columna de PIEZAS)
+    const claseFila = fila.map((c) => sinAcentos(texto(c)).match(CLASE)).find(Boolean);
+    if (claseFila) {
+      clase = claseFila[1];
+      producto = '';
+      continue;
+    }
+
     const pz = numero(fila[col.piezas]);
     const peso = col.peso > 0 ? numero(fila[col.peso]) : null;
     if (!a && pz === null) continue;
 
     let m;
-    if ((m = A.match(CLASE))) {
-      clase = m[1];
-      producto = '';
-      continue;
-    }
     if (A === 'TOTAL') {
       t.totalPiezas = pz;
       continue;
@@ -133,6 +136,13 @@ export function leerTraslado(filas: unknown[][]): Traslado {
     if (esCodigoCostal(A) && pz !== null) {
       t.costales.push({ codigo: A, seccion: `${producto || 'ROPA'} ${clase}`.trim(), piezas: Math.round(pz), peso });
       acumPiezas += Math.round(pz);
+      continue;
+    }
+    // Subtotal corrido a la primera columna (algunos reportes ponen solo el número de piezas en la columna A)
+    if (/^\d+(\.\d+)?$/.test(A)) {
+      if (Math.round(Number(A)) !== acumPiezas)
+        t.avisos.push(`${producto || 'ROPA'} ${clase}: el subtotal dice ${A} piezas y los costales suman ${acumPiezas}.`);
+      acumPiezas = 0;
       continue;
     }
     // Subtotal: fila sin nombre (ropa) o con el nombre del producto
