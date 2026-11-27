@@ -4,7 +4,7 @@ import { supabaseNavegador } from '@/lib/supabase/client';
 import { cargarOrgsPropias, rpc } from '@/lib/datos';
 import { puedeAdministrarOrg, type AsignacionRol, type Empleado, type Organizacion, type Tienda } from '@/lib/tipos';
 import { SelectorOrg, useOrgActiva } from '@/components/selector-org';
-import { Aviso, Boton, Campo, Entrada, Insignia, Modal, Tarjeta, Titulo } from '@/components/ui';
+import { Aviso, Boton, Campo, Entrada, Insignia, Modal, Selector, Tarjeta, Titulo } from '@/components/ui';
 
 type Form = { id?: string; nombre: string; apellidos: string; tiendas: string[]; pin: string; activo: boolean };
 
@@ -21,11 +21,29 @@ export default function EmpleadosCliente({ roles }: { roles: AsignacionRol[] }) 
   const [creado, setCreado] = useState<{ codigo: string; nombre: string } | null>(null);
   const [error, setError] = useState('');
   const [busqueda, setBusqueda] = useState('');
+  const [filtroTienda, setFiltroTienda] = useState('');
+  const [abrirNuevo, setAbrirNuevo] = useState(false);
   const editable = puedeAdministrarOrg(roles, orgId);
 
   useEffect(() => {
     cargarOrgsPropias(roles).then(setOrgs);
+    // Acceso directo desde Sucursales: ?tienda=<id>&nuevo=1
+    const q = new URLSearchParams(window.location.search);
+    if (q.get('tienda')) setFiltroTienda(q.get('tienda')!);
+    if (q.get('nuevo')) setAbrirNuevo(true);
   }, [roles]);
+
+  const nuevoEmpleado = () => {
+    setForm({ nombre: '', apellidos: '', tiendas: filtroTienda ? [filtroTienda] : [], pin: '', activo: true });
+    setError('');
+  };
+
+  useEffect(() => {
+    if (abrirNuevo && editable && tiendas.length) {
+      setAbrirNuevo(false);
+      nuevoEmpleado();
+    }
+  }, [abrirNuevo, editable, tiendas]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cargar = useCallback(async () => {
     if (!orgId) return;
@@ -86,18 +104,27 @@ export default function EmpleadosCliente({ roles }: { roles: AsignacionRol[] }) 
     setForm({ ...form, tiendas: form.tiendas.includes(id) ? form.tiendas.filter((t) => t !== id) : [...form.tiendas, id] });
   };
 
-  const filtrados = empleados.filter((e) =>
-    `${e.codigo} ${e.nombre} ${e.apellidos ?? ''}`.toLowerCase().includes(busqueda.toLowerCase()),
+  const filtrados = empleados.filter(
+    (e) =>
+      `${e.codigo} ${e.nombre} ${e.apellidos ?? ''}`.toLowerCase().includes(busqueda.toLowerCase()) &&
+      (!filtroTienda || asign.some((a) => a.empleado_id === e.id && a.tienda_id === filtroTienda)),
   );
+  const tiendaFiltro = tiendas.find((t) => t.id === filtroTienda);
 
   return (
     <div>
-      <Titulo accion={editable && <Boton onClick={() => { setForm({ nombre: '', apellidos: '', tiendas: [], pin: '', activo: true }); setError(''); }}>+ Empleado</Boton>}>
+      <Titulo accion={editable && <Boton onClick={nuevoEmpleado}>+ Empleado{tiendaFiltro ? ` en ${tiendaFiltro.codigo}` : ''}</Boton>}>
         Empleados
       </Titulo>
       <SelectorOrg orgs={orgs} valor={orgId} onCambio={setOrgId} />
       <p className="mb-3 text-sm text-gray-500">Los empleados entran a Producción en el celular de su tienda con su código y PIN. El código se genera solo.</p>
-      <div className="mb-4">
+      <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <Selector value={filtroTienda} onChange={(e) => setFiltroTienda(e.target.value)}>
+          <option value="">Todas las tiendas</option>
+          {tiendas.filter((t) => !t.es_central && !t.es_venta_local).map((t) => (
+            <option key={t.id} value={t.id}>{t.codigo} · {t.nombre}</option>
+          ))}
+        </Selector>
         <Entrada placeholder="Buscar por código o nombre" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} />
       </div>
 

@@ -83,6 +83,10 @@ export function ManualOrganizacion() {
           Marca como <B>Centro de distribución</B> la bodega que despacha (ej. B090). Una sucursal con la insignia roja &quot;Sin bodega&quot;
           no puede recibir traslados hasta que se le asigne.
         </Nota>
+        <p>
+          Debajo de cada tienda están sus accesos: <B>👷 Empleados</B> y <B>+ Empleado</B> (personal del celular), <B>📄 Inventario inicial</B>{' '}
+          y <B>🔒 Cerrar inicial</B>.
+        </p>
       </Seccion>
 
       <Seccion id="productos" titulo="5. Productos">
@@ -102,6 +106,10 @@ export function ManualOrganizacion() {
         <p>
           Menú <B>Empleados</B> → <B>+ Empleado</B>. Escribe nombre y apellidos, marca las tiendas donde trabaja y asígnale un <B>PIN</B> de 4 a 6
           dígitos. El sistema le da un código como <B>DEM-0001</B>.
+        </p>
+        <p>
+          Atajo: en <B>Sucursales</B>, cada tienda tiene <B>👷 Empleados (N)</B>, que muestra solo el personal de esa tienda, y{' '}
+          <B>+ Empleado</B>, que abre el formulario con la tienda ya marcada. En Empleados también puedes filtrar por tienda.
         </p>
         <Figura img="o-empleados" pie="Empleados con su código" />
         <Figura img="o-empleado-nuevo" pie="Nuevo empleado: tiendas y PIN" />
