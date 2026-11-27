@@ -10,7 +10,7 @@ import { useSincronizacion } from '@/lib/offline/sincronizacion';
 
 type Empleado = { id: string; codigo: string; nombre: string };
 type Sesion = { token: string; empleado: Empleado };
-type Vista = 'INICIO' | 'PRODUCCION' | 'RECIBIR' | 'INICIAL' | 'STOCK' | 'RETORNO' | 'INVENTARIO' | 'AUDITORIA';
+type Vista = 'INICIO' | 'PRODUCCION' | 'RECIBIR' | 'INICIAL' | 'STOCK' | 'RETORNO' | 'INVENTARIO' | 'AUDITORIA' | 'VENDER' | 'ANULAR';
 type Sinc = ReturnType<typeof useSincronizacion>;
 
 const INACTIVIDAD_MS = 3 * 60 * 1000;
@@ -20,7 +20,7 @@ const minutosDesde = (iso: string) => {
   return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
 };
 
-const TEXTO_OP: Record<TipoOp, string> = { RECIBIR: 'Recibido', INICIAR: 'Iniciado', FINALIZAR: 'Finalizado', RETORNO: 'Retorno enviado', INVENTARIO: 'Contado' };
+const TEXTO_OP: Record<TipoOp, string> = { RECIBIR: 'Recibido', INICIAR: 'Iniciado', FINALIZAR: 'Finalizado', RETORNO: 'Retorno enviado', INVENTARIO: 'Contado', VENDER: 'Vendido', ANULAR_VENTA: 'Venta anulada' };
 
 export default function TiendaCliente({
   tienda,
@@ -96,7 +96,32 @@ export default function TiendaCliente({
         </div>
       )}
 
-      {vista === 'INICIO' && (
+      {vista === 'INICIO' && sinc.datos.venta_local && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+            <Mosaico icono="🛒" titulo="Vender" detalle="Escanear costal vendido" principal onClick={() => abrir('VENDER')} />
+            <Mosaico icono="📦" titulo="Stock" detalle="Costales disponibles" onClick={() => abrir('STOCK')} />
+            <Mosaico icono="↩️" titulo="Anular venta" detalle="Deshacer una venta equivocada" onClick={() => abrir('ANULAR')} />
+            {sinc.datos.inventario && (
+              <Mosaico
+                icono="🔍"
+                titulo="Inventario"
+                detalle={`${sinc.datos.inventario.leidos.length} de ${sinc.datos.inventario.esperados} contados`}
+                onClick={() => abrir('INVENTARIO')}
+              />
+            )}
+          </div>
+          <VendidosHoy sinc={sinc} />
+          <button onClick={() => abrir('AUDITORIA')} className="block w-full rounded-3xl bg-white p-4 text-center text-sm font-black text-gray-700 shadow-sm">
+            🛡️ Auditoría (con código del administrador)
+          </button>
+          <a href="/manual/tienda" className="block rounded-3xl bg-white p-4 text-center text-sm font-black text-indigo-600 shadow-sm">
+            📘 Manual de uso del celular
+          </a>
+        </div>
+      )}
+
+      {vista === 'INICIO' && !sinc.datos.venta_local && (
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
             <Mosaico icono="✂️" titulo="Producción" detalle="Iniciar y finalizar costales" principal onClick={() => abrir('PRODUCCION')} />
@@ -146,6 +171,7 @@ export default function TiendaCliente({
       {vista === 'RETORNO' && sesion && <Retorno sesion={sesion} sinc={sinc} tiendaCodigo={tienda.codigo} />}
       {vista === 'INVENTARIO' && sesion && <Inventario sesion={sesion} sinc={sinc} />}
       {vista === 'AUDITORIA' && <Auditoria onSalir={terminar} />}
+      {(vista === 'VENDER' || vista === 'ANULAR') && sesion && <Venta key={vista} sesion={sesion} sinc={sinc} anular={vista === 'ANULAR'} />}
       {vista === 'INICIAL' && sinc.datos.inicial_cerrado && <Aviso tipo="error">El inventario inicial de esta tienda ya está cerrado.</Aviso>}
       {vista === 'STOCK' && (
         <section className="rounded-3xl bg-white p-5 shadow-sm">
@@ -439,6 +465,72 @@ function Produccion({ sesion, sinc, dispositivoId, onPersona }: { sesion: Sesion
         />
       )}
     </div>
+  );
+}
+
+/** Bodega de ventas locales: cada costal vendido se escanea con el código y PIN del vendedor. */
+function Venta({ sesion, sinc, anular }: { sesion: Sesion; sinc: Sinc; anular: boolean }) {
+  const [desde] = useState(() => new Date().toISOString());
+  const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
+  const [confirmar, setConfirmar] = useState<string | null>(null);
+  const vendidos = sinc.datos.vendidos_hoy ?? [];
+
+  const vender = (codigo: string) => {
+    const local = sinc.datos.costales.find((c) => c.codigo === codigo);
+    const yaVendido = vendidos.find((v) => v.codigo === codigo);
+    if (yaVendido) return setAviso({ ok: false, texto: `${codigo} ya estaba vendido (${new Date(yaVendido.vendido_at).toLocaleTimeString()}).` });
+    if (!local && navigator.onLine === false)
+      setAviso({ ok: false, texto: `${codigo} no aparece en esta bodega. Se enviará y el sistema lo revisará al tener internet.` });
+    else setAviso({ ok: true, texto: `Vendido ${codigo}${local?.producto ? ` · ${local.producto}` : ''}.` });
+    sinc.agregar(crearOp(sesion, 'VENDER', { codigo }), local?.producto ?? null);
+  };
+
+  const anularVenta = (codigo: string) => {
+    sinc.agregar(crearOp(sesion, 'ANULAR_VENTA', { codigo }), vendidos.find((v) => v.codigo === codigo)?.producto ?? null);
+    setAviso({ ok: true, texto: `Venta de ${codigo} anulada: el costal vuelve al stock.` });
+    setConfirmar(null);
+  };
+
+  return (
+    <div className="space-y-4">
+      <section className="space-y-3 rounded-3xl bg-white p-5 shadow-sm">
+        <p className="text-lg font-black">{anular ? '↩️ Anular venta' : '🛒 Vender'}</p>
+        <p className="text-xs text-gray-500">
+          {anular ? 'Escanea el costal cuya venta se registró por error. Vuelve al stock de la bodega.' : 'Escanea cada costal que se vende. Queda registrado a tu nombre.'}
+        </p>
+        <Escaner onCodigo={anular ? setConfirmar : vender} deshabilitado={!!confirmar} textoAyuda={anular ? 'Costal a anular' : 'Costal vendido'} />
+        {aviso && <Aviso tipo={aviso.ok ? 'exito' : 'error'}>{aviso.texto}</Aviso>}
+      </section>
+      <Actividad sesion={sesion} sinc={sinc} desde={desde} />
+      <VendidosHoy sinc={sinc} />
+      {confirmar && (
+        <Modal titulo="Anular venta" onCerrar={() => setConfirmar(null)}>
+          <p className="text-center font-mono text-2xl font-black">{confirmar}</p>
+          <p className="text-center text-sm text-gray-500">{vendidos.find((v) => v.codigo === confirmar)?.producto ?? ''}</p>
+          <Boton className="mt-4 w-full" onClick={() => anularVenta(confirmar)}>Sí, anular la venta</Boton>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function VendidosHoy({ sinc }: { sinc: Sinc }) {
+  const v = sinc.datos.vendidos_hoy ?? [];
+  return (
+    <section className="rounded-3xl bg-white p-5 shadow-sm">
+      <p className="mb-2 text-xs font-black uppercase tracking-wide text-gray-400">Vendidos en las últimas 24 h ({v.length})</p>
+      {v.length === 0 && <p className="text-sm text-gray-400">Todavía no hay ventas.</p>}
+      <div className="max-h-72 space-y-1 overflow-y-auto">
+        {v.map((x) => (
+          <div key={x.codigo} className="flex justify-between rounded-xl bg-gray-50 px-3 py-1.5 text-xs">
+            <span className="font-mono font-bold">{x.codigo}</span>
+            <span className="text-gray-500">
+              {x.producto ?? '—'} · {x.empleado ?? ''} · {new Date(x.vendido_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
