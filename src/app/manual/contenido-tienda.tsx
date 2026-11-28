@@ -4,6 +4,7 @@ export const SECCIONES_TIENDA = [
   ['celular', 'El celular de la tienda'],
   ['activar', 'Activar el celular (una sola vez)'],
   ['entrar', 'Entrar con tu código y PIN'],
+  ['escanear', 'Cómo escanear bien'],
   ['recibir', 'Recibir costales'],
   ['produccion', 'Producción: abrir y terminar un costal'],
   ['inicial', 'Inventario inicial desde el celular'],
@@ -63,6 +64,35 @@ export function ManualTienda() {
           <li>Si escribes mal el PIN 5 veces, tu código se bloquea 10 minutos.</li>
           <li>Nunca compartas tu PIN: todo lo que se registre con él queda a tu nombre.</li>
         </Lista>
+      </Seccion>
+
+      <Seccion id="escanear" titulo="3b. Cómo escanear bien">
+        <p>Hay tres formas de leer el código de un costal. Usa la que te funcione mejor; las tres hacen lo mismo.</p>
+        <Tabla
+          cols={['Forma', 'Cuándo usarla']}
+          filas={[
+            ['📷 Usar cámara', 'La normal. La cámara queda abierta y lee un costal tras otro.'],
+            ['📸 Foto', 'Si la cámara no lee una etiqueta (pequeña, arrugada o con poca luz). Tomas una foto y la app busca el código en toda la foto.'],
+            ['Escribir el código', 'Último recurso: escribe el código que aparece debajo de las barras (EMP + 8 números) y pulsa OK.'],
+          ]}
+        />
+        <Sub>Con la cámara</Sub>
+        <Lista>
+          <li>Pon el código de barras <B>derecho (horizontal)</B> dentro del <B>recuadro blanco</B>, llenando la mayor parte del recuadro.</li>
+          <li>Acerca el celular a unos <B>15–25 cm</B>. Si se ve borroso, aléjalo un poco hasta que enfoque.</li>
+          <li><B>Mantén quieto</B> el celular un segundo: abajo aparece &quot;Leyendo… 1/2&quot; y luego el código en verde.</li>
+          <li>Con poca luz toca <B>🔦 Luz</B>. Evita reflejos: inclina un poco la etiqueta si brilla.</li>
+          <li>Si la etiqueta está arrugada, estírala con la mano antes de escanear.</li>
+          <li>Al leer, el celular vibra y muestra el código en verde: <B>compáralo con el de la etiqueta</B>.</li>
+        </Lista>
+        <Sub>Con 📸 Foto</Sub>
+        <Lista>
+          <li>Toca <B>📸 Foto</B>, enfoca solo el código (que se vea grande y nítido) y toma la foto.</li>
+          <li>Si dice que no encontró el código, toma otra foto más de cerca, derecha y sin reflejos.</li>
+        </Lista>
+        <Nota tipo="aviso">
+          Si aparece <B>&quot;Lectura dudosa&quot;</B>, la cámara leyó algo que no es un código de costal. No pasa nada: acomoda la etiqueta y espera, o usa 📸 Foto. Nunca se registra una lectura dudosa.
+        </Nota>
       </Seccion>
 
       <Seccion id="recibir" titulo="4. Recibir costales">
